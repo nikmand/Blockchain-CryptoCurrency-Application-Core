@@ -138,6 +138,7 @@ public class ClientServerThread extends Thread {
 			Transaction trans = msg.getTransaction();
 			// validate it !
 			miner.getCurrentBlock().addTransaction(trans, miner.getBlockchain()); // validation happens here
+			// check why we get InputValues=0
 			if (miner.getCurrentBlock().proceedWithMine()) {
 				miner.mineBlock();
 			}
