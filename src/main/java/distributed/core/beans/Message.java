@@ -3,6 +3,8 @@ package distributed.core.beans;
 import java.io.Serializable;
 import java.security.PublicKey;
 
+import com.google.gson.GsonBuilder;
+
 import distributed.core.entities.Blockchain;
 import distributed.core.entities.Transaction;
 
@@ -24,4 +26,8 @@ public abstract class Message implements Serializable {
 	// private Blockchain blockchain;
 	// private Transaction transaction;
 
+	@Override
+	public String toString() {
+		return new GsonBuilder().setPrettyPrinting().create().toJson(this);
+	}
 }

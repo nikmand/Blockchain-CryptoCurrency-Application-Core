@@ -7,6 +7,7 @@ import java.security.PublicKey;
 import java.util.HashMap;
 import java.util.Map.Entry;
 
+import org.apache.commons.lang3.SerializationUtils;
 import org.apache.commons.lang3.tuple.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -57,12 +58,10 @@ public class ClientServerThread extends Thread {
 			MsgNodeId newMsg = new MsgNodeId(nodesSoFar - 1);
 			(new ClientThread(msg.getIpAddress(), msg.getPort(), newMsg)).start();
 			// την απάντηση μπορούμε να τη στείλουμε στο ίδιο socket?
-			/*
-			 * LOG.info("peer address = {}",
+			/* LOG.info("peer address = {}",
 			 * socket.getInetAddress().toString().substring(1));
 			 * LOG.info("peer address = {}", socket.getRemoteSocketAddress());
-			 * LOG.info("peer address = {}", socket.getPort());
-			 */
+			 * LOG.info("peer address = {}", socket.getPort()); */
 			// Pair<String, Integer> aux = miner.getNode(peerKey); // δε χρειάζεται να τα
 			// ψάξουμε
 
@@ -71,7 +70,13 @@ public class ClientServerThread extends Thread {
 				MsgNodesInfo msgInfo = new MsgNodesInfo(miner.getHashMap());
 				miner.broadcastMsg(msgInfo); // broadcast τη δομή με τα στοιχεία των κόμβων
 				MsgChain msgChain = new MsgChain(miner.getBlockchain());
+				LOG.debug("num of utxos = {}", miner.getBlockchain().getUTXOs().size());
 				miner.broadcastMsg(msgChain); // broadcast το blockchain
+				try {
+					Thread.sleep(1000);
+				} catch (InterruptedException e) {
+					e.printStackTrace();
+				}
 				// broadcast n-1 transactions
 				HashMap<PublicKey, Pair<String, Integer>> _nodes = miner.getHashMap();
 				for (Entry<PublicKey, Pair<String, Integer>> entry : _nodes.entrySet()) {
@@ -82,30 +87,25 @@ public class ClientServerThread extends Thread {
 					LOG.info("Sending money to node with public key={} in address={}", entry.getKey(),
 							entry.getValue().getLeft() + ":" + entry.getValue().getRight());
 					Transaction marshallPlan = miner.sendFunds(entry.getKey(), 100);
+					Transaction deepCopy = SerializationUtils.clone(marshallPlan); // deep Copy the trans so it won't get modified while being broadcasting
+					MsgTrans msgTrans = new MsgTrans(deepCopy);
 					miner.getCurrentBlock().addTransaction(marshallPlan, miner.getBlockchain()); // validation happens here
+					miner.broadcastMsg(msgTrans); //first broadcast then validated it
 					//if it isn't valid?
-					MsgTrans msgTrans = new MsgTrans(marshallPlan);
-					miner.broadcastMsg(msgTrans);
 					if (miner.getCurrentBlock().proceedWithMine()) {
 						miner.mineBlock();
 					}
 					LOG.debug("New balance is ={}", miner.getBalance());
-					break; // for debug
-					// δεν πετυχαίνει το δεύτερο transaction γτ κατά τη δημιουργία του πρώτου
-					// αφαιρεθηκε το input trans
+					//break; // for debug
 				}
-				/*
-				 * for (;;) { MsgTrans msgTrans = new MsgTrans(new Transaction());
-				 * miner.broadcastMsg(msgTrans); }
-				 */
+				/* for (;;) { MsgTrans msgTrans = new MsgTrans(new Transaction());
+				 * miner.broadcastMsg(msgTrans); } */
 			}
 			// socket.getPort(), message)).start();
-			/*
-			 * ObjectOutputStream outputStream; try { outputStream = new
+			/* ObjectOutputStream outputStream; try { outputStream = new
 			 * ObjectOutputStream(this.socket.getOutputStream());
 			 * outputStream.writeObject(new_msg); } catch (IOException e) { // TODO
-			 * Auto-generated catch block e.printStackTrace(); }
-			 */
+			 * Auto-generated catch block e.printStackTrace(); } */
 		} else if (message instanceof MsgNodeId) {
 
 			MsgNodeId msg = (MsgNodeId) message;
@@ -125,6 +125,7 @@ public class ClientServerThread extends Thread {
 			miner.setBlockchain(msg.getChain());
 			Blockchain blockchain = miner.getBlockchain();
 			blockchain.printBlockChain();
+			LOG.debug("num of utxos after send = {}", blockchain.getUTXOs().size());
 			if (blockchain.isBlockchainValid()) {
 				LOG.info("BlockChain is valid");
 			} else {
@@ -133,14 +134,18 @@ public class ClientServerThread extends Thread {
 
 		} else if (message instanceof MsgTrans) {
 
-			LOG.info("A transaction was received!");
 			MsgTrans msg = (MsgTrans) message;
 			Transaction trans = msg.getTransaction();
+			LOG.info("A transaction was received! {}", trans);
 			// validate it !
-			miner.getCurrentBlock().addTransaction(trans, miner.getBlockchain()); // validation happens here
-			// check why we get InputValues=0
-			if (miner.getCurrentBlock().proceedWithMine()) {
-				miner.mineBlock();
+			synchronized (miner.getCurrentBlock()) {
+				miner.getCurrentBlock().addTransaction(trans, miner.getBlockchain()); // validation happens here
+
+				if (miner.getCurrentBlock().proceedWithMine()) {
+					miner.mineBlock();
+				} else {
+					LOG.warn("Problem with block! {}", miner.getCurrentBlock());
+				}
 			}
 			LOG.debug("New balance is ={}", miner.getBalance());
 
@@ -148,10 +153,14 @@ public class ClientServerThread extends Thread {
 
 			MsgBlock msgBlock = (MsgBlock) message;
 			Block block = msgBlock.getBlock();
-			if (block.validateBlock(miner.getBlockchain().getLastHash())) {
-				miner.getBlockchain().addToChain(block);
-			} else {
-				LOG.warn("Invalid block received, block was {}", block);
+			LOG.info("A block was received! {}", block);
+			synchronized (miner.getBlockchain()) {
+				if (block.validateBlock(miner.getBlockchain().getLastHash())) {
+					miner.getBlockchain().addToChain(block);
+					LOG.info("Block that was received added to chain");
+				} else {
+					LOG.warn("Invalid block received, block was {}", block);
+				}
 			}
 
 		} else if (message instanceof MsgIsAlive) { // just for check
@@ -173,6 +182,7 @@ public class ClientServerThread extends Thread {
 			Message msg = (Message) objectInputStream.readObject();
 
 			// Handle the incoming message
+			LOG.debug("Message received from node {}:{}", socket.getInetAddress().getHostAddress(), socket.getPort());
 			handleMessage(msg);
 
 			// Close the socket since we got its input

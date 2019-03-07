@@ -9,6 +9,8 @@ import java.util.Arrays;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.gson.GsonBuilder;
+
 import distributed.core.utilities.StringUtilities;
 
 public class Transaction implements Serializable {
@@ -69,6 +71,8 @@ public class Transaction implements Serializable {
 	// Returns true if new transaction could be created.
 	// It also checks the validity of a transaction
 	public boolean processTransaction(Blockchain blockchain) { // rename to validateTransactions
+		LOG.info("START validate transaction");
+
 		if (verifiySignature() == false) {
 			LOG.warn("Transaction Signature failed to verify");
 			return false;
@@ -77,8 +81,8 @@ public class Transaction implements Serializable {
 		// gather transaction inputs (Make sure they are unspent):
 		for (TransactionInput i : inputs) { // τα έχει δημιουργήσει η sendFunds του wallet
 			LOG.debug("Size of unspent trans = {}", blockchain.getUTXOs().size());
-			i.UTXO = blockchain.getUTXOs().get(i.transactionOutputId);// but at this time they have already been removed
-																		// from the unspent
+			i.UTXO = blockchain.getUTXOs().get(i.transactionOutputId); // θέτει το unspend output για τα trans
+
 		}
 		LOG.debug("Size of input trans ={}", inputs.size());
 
@@ -103,7 +107,7 @@ public class Transaction implements Serializable {
 
 		// add outputs to Unspent list
 		for (TransactionOutput o : outputs) {
-			Blockchain.getUTXOs().put(o.getId(), o);
+			blockchain.getUTXOs().put(o.getId(), o);
 		}
 
 		// remove transaction inputs from UTXO lists as spent:
@@ -111,7 +115,7 @@ public class Transaction implements Serializable {
 			if (i.UTXO == null) {
 				continue; // if Transaction can't be found skip it // isn't it a problem ?
 			}
-			Blockchain.getUTXOs().remove(i.UTXO.getId());
+			blockchain.getUTXOs().remove(i.UTXO.getId());
 		}
 
 		return true;
@@ -136,6 +140,11 @@ public class Transaction implements Serializable {
 			total += o.getValue();
 		}
 		return total;
+	}
+
+	@Override
+	public String toString() {
+		return new GsonBuilder().setPrettyPrinting().create().toJson(this);
 	}
 
 }

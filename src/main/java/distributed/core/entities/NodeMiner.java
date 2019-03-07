@@ -1,33 +1,26 @@
 package distributed.core.entities;
 
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.net.Inet4Address;
+import java.net.UnknownHostException;
+import java.security.PublicKey;
+import java.security.Security;
+import java.util.HashMap;
+import java.util.Map.Entry;
+
 import org.apache.commons.lang3.tuple.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import distributed.core.beans.Block;
 import distributed.core.beans.Message;
-import distributed.core.beans.MessageType;
+import distributed.core.beans.MsgBlock;
 import distributed.core.beans.MsgInitialize;
+import distributed.core.beans.MsgTrans;
 import distributed.core.threads.ClientThread;
 import distributed.core.threads.ServerThread;
 import distributed.core.utilities.Constants;
-
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.net.Inet4Address;
-import java.net.ServerSocket;
-import java.net.Socket;
-import java.net.UnknownHostException;
-import java.security.PublicKey;
-import java.security.Security;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map.Entry;
-import java.util.Random;
-import java.util.logging.Level;
 
 /*
  * Class that represents a miner.
@@ -148,7 +141,7 @@ public class NodeMiner {
 		LOG.info("Starting mine block");
 
 		// Block currentBlock = new Block(null); // todo proper call to constructor
-		currentBlock.setCurrentHash(blockchain.getLastHash());
+		currentBlock.setPreviousHash(blockchain.getLastHash());
 		String target = new String(new char[Constants.DIFFICULTY]).replace('\0', '0'); // Create a string with
 																						// difficulty * "0"
 		LOG.info("Check that hash of block starts with {} zeros", target);
@@ -158,11 +151,15 @@ public class NodeMiner {
 		}
 		LOG.info("Block Mined with hash value={}", currentBlock.getCurrentHash());
 		// add to block chain set new block as the current
-		if (currentBlock.validateBlock(blockchain.getLastHash())) {
-			LOG.info("Block added to chain");
-			blockchain.addToChain(currentBlock);
-		} else {
-			LOG.warn("Invalid block received, block was {}", currentBlock);
+		synchronized (blockchain) {
+			if (currentBlock.validateBlock(blockchain.getLastHash())) {
+				LOG.info("Block added to chain");
+				blockchain.addToChain(currentBlock);
+				MsgBlock msgBlock = new MsgBlock(currentBlock);
+				broadcastMsg(msgBlock);
+			} else {
+				LOG.warn("Invalid block detected, not broadcasted, block was {}", currentBlock);
+			}
 		}
 		currentBlock = new Block();
 	}
@@ -201,12 +198,23 @@ public class NodeMiner {
 	}
 
 	public void broadcastMsg(Message msg) {
+		LOG.info("Start broadcasting message");
+		//LOG.trace("Start broadcasting message={}", msg);
+
 		for (Entry<PublicKey, Pair<String, Integer>> entry : nodes.entrySet()) {
 			if (entry.getKey().equals(this.getPublicKey())) {
 				// Do not send it back to myself
 				continue;
 			}
 			(new ClientThread(entry.getValue().getLeft(), entry.getValue().getRight(), msg)).start();
+			/*try { //debug //gives catastrophic results!
+				if (msg instanceof MsgTrans) {
+					Thread.sleep(5000);
+				}
+			} catch (InterruptedException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}*/
 		}
 	}
 
@@ -252,6 +260,10 @@ public class NodeMiner {
 
 		InputStream is = null;
 		BufferedReader br = null;
+
+		Thread.sleep(10000); // for debug
+		node.getBlockchain().printBlockChain();
+		LOG.info("Size of blockchain={}", node.getBlockchain().getSize());
 
 		/*
 		 * while (server.isRunning()) { // παρακαλουθούμε την είσοδο που δίνει ο χρήστης

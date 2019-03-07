@@ -23,8 +23,12 @@ public class Blockchain implements Serializable {
 	private List<Block> blockchain = new ArrayList<Block>();
 	private int difficulty;
 
-	private static HashMap<String, TransactionOutput> UTXOs = new HashMap<String, TransactionOutput>();
+	private HashMap<String, TransactionOutput> UTXOs = new HashMap<String, TransactionOutput>();
 	// every node keeps unspend transactions
+
+	public int getSize() {
+		return blockchain.size();
+	}
 
 	public String getLastHash() {
 		return blockchain.get(blockchain.size() - 1).getCurrentHash();
@@ -42,7 +46,7 @@ public class Blockchain implements Serializable {
 		this.blockchain = blockchain;
 	}
 
-	public static HashMap<String, TransactionOutput> getUTXOs() {
+	public HashMap<String, TransactionOutput> getUTXOs() {
 		return UTXOs;
 	}
 
