@@ -84,7 +84,7 @@ public class ServerThread extends Thread {
 				// Initialize a new Thread to process the result while the
 				// server will wait for new incoming requests
 				ClientServerThread cliSrvThread = new ClientServerThread(socket, this, this.miner);
-				cliSrvThread.setDaemon(false);
+				cliSrvThread.setDaemon(false); // set to true
 				(cliSrvThread).start();
 			} catch (java.net.SocketException e) {
 				LOG.warn("Server shutted down.");

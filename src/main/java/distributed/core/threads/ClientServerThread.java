@@ -4,8 +4,8 @@ import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.net.Socket;
 import java.security.PublicKey;
-import java.util.HashMap;
 import java.util.Map.Entry;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.commons.lang3.SerializationUtils;
 import org.apache.commons.lang3.tuple.Pair;
@@ -16,6 +16,9 @@ import distributed.core.beans.Block;
 import distributed.core.beans.Message;
 import distributed.core.beans.MsgBlock;
 import distributed.core.beans.MsgChain;
+import distributed.core.beans.MsgChainRequest;
+import distributed.core.beans.MsgChainSizeRequest;
+import distributed.core.beans.MsgChainSizeResponse;
 import distributed.core.beans.MsgInitialize;
 import distributed.core.beans.MsgIsAlive;
 import distributed.core.beans.MsgNodeId;
@@ -67,10 +70,11 @@ public class ClientServerThread extends Thread {
 
 			if (nodesSoFar == miner.getNumOfNodes()) { // ενέργειες που κάνουμε μόλις εισαχθούν όλοι
 				// server.getMiner().broadcastMsg(new MsgIsAlive());
+				LOG.info("All nodes sent their info, replying with the collection of nodes and the blockchain");
 				MsgNodesInfo msgInfo = new MsgNodesInfo(miner.getHashMap());
 				miner.broadcastMsg(msgInfo); // broadcast τη δομή με τα στοιχεία των κόμβων
 				MsgChain msgChain = new MsgChain(miner.getBlockchain());
-				LOG.debug("num of utxos = {}", miner.getBlockchain().getUTXOs().size());
+				//LOG.debug("num of utxos = {}", miner.getBlockchain().getUTXOs().size());
 				miner.broadcastMsg(msgChain); // broadcast το blockchain
 				try {
 					Thread.sleep(1000);
@@ -78,7 +82,7 @@ public class ClientServerThread extends Thread {
 					e.printStackTrace();
 				}
 				// broadcast n-1 transactions
-				HashMap<PublicKey, Pair<String, Integer>> _nodes = miner.getHashMap();
+				ConcurrentHashMap<PublicKey, Pair<String, Integer>> _nodes = miner.getHashMap();
 				for (Entry<PublicKey, Pair<String, Integer>> entry : _nodes.entrySet()) {
 					if (entry.getKey().equals(miner.getPublicKey())) {
 						LOG.info("I do not send money to myself!");
@@ -121,11 +125,12 @@ public class ClientServerThread extends Thread {
 
 		} else if (message instanceof MsgChain) {
 
+			LOG.info("Message sending us the blockchain was received");
 			MsgChain msg = (MsgChain) message;
 			miner.setBlockchain(msg.getChain());
 			Blockchain blockchain = miner.getBlockchain();
 			blockchain.printBlockChain();
-			LOG.debug("num of utxos after send = {}", blockchain.getUTXOs().size());
+			//LOG.debug("num of utxos after send = {}", blockchain.getUTXOs().size());
 			if (blockchain.isBlockchainValid()) {
 				LOG.info("BlockChain is valid");
 			} else {
@@ -157,11 +162,61 @@ public class ClientServerThread extends Thread {
 			synchronized (miner.getBlockchain()) {
 				if (block.validateBlock(miner.getBlockchain().getLastHash())) {
 					miner.getBlockchain().addToChain(block);
+					miner.alone.set(false);
 					LOG.info("Block that was received added to chain");
 				} else {
 					LOG.warn("Invalid block received, block was {}", block);
+					MsgChainSizeRequest msgSize = new MsgChainSizeRequest(miner.getPublicKey());
+					LOG.info("Sending requests for blockchain size");
+					miner.setSizeOfNodeChain();
+					miner.broadcastMsg(msgSize);
 				}
 			}
+
+		} else if (message instanceof MsgChainSizeRequest) {
+
+			LOG.info("Request for blockchain's size received");
+			MsgChainSizeRequest msgSize = (MsgChainSizeRequest) message;
+
+			PublicKey key = msgSize.getPublicKey();
+			Pair<String, Integer> value = miner.getNode(key);
+
+			MsgChainSizeResponse newMsg = new MsgChainSizeResponse(miner.getBlockchain().getSize(),
+					miner.getPublicKey());
+			(new ClientThread(value.getLeft(), value.getRight(), newMsg)).start();
+
+		} else if (message instanceof MsgChainSizeResponse) {
+
+			LOG.info("Msg with size of blockchain received");
+			MsgChainSizeResponse msgSize = (MsgChainSizeResponse) message;
+			miner.setSizeOfNodeChain(msgSize.getKey(), msgSize.getSize());
+			if (miner.getChainSizeOther() == miner.getNumOfNodes()) {
+				LOG.info("All sizes received, checking if there is bigger blockchain");
+				synchronized (miner.getBlockchain()) { // sync so our blockchain don't expand while on this step
+					PublicKey key = miner.getNodeLargestChain();
+					if (key != null) {
+						LOG.info("Bigger chain detected, sending request");
+						Pair<String, Integer> value = miner.getNode(key);
+						MsgChainRequest chainReq = new MsgChainRequest(miner.getPublicKey()); // λάθος η αίτηση περιέχει τα στοιχεία του node με τη μεγαλύτερη αλυσίδα
+						(new ClientThread(value.getLeft(), value.getRight(), chainReq)).start(); // send message to node with largest chain
+					} else {
+						LOG.info("There isn't a bigger chain");
+					}
+					miner.deleteAllSizes();
+					LOG.info("Clear the hash map from sizes");
+				}
+			}
+
+		} else if (message instanceof MsgChainRequest) {
+			//TODO send only blocks that are missing from peer not the whole blockchain
+			LOG.info("Message requesting blockchain received");
+			Blockchain deepcopy = SerializationUtils.clone(miner.getBlockchain());
+			MsgChain msgChain = new MsgChain(deepcopy);
+
+			MsgChainRequest msg = (MsgChainRequest) message;
+			PublicKey peerKey = msg.getPublicKey();
+			Pair<String, Integer> value = miner.getNode(peerKey);
+			(new ClientThread(value.getLeft(), value.getRight(), msgChain)).start();
 
 		} else if (message instanceof MsgIsAlive) { // just for check
 
@@ -182,7 +237,7 @@ public class ClientServerThread extends Thread {
 			Message msg = (Message) objectInputStream.readObject();
 
 			// Handle the incoming message
-			LOG.debug("Message received from node {}:{}", socket.getInetAddress().getHostAddress(), socket.getPort());
+			//LOG.debug("Message received from node {}:{}", socket.getInetAddress().getHostAddress(), socket.getPort());
 			handleMessage(msg);
 
 			// Close the socket since we got its input

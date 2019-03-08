@@ -6,8 +6,9 @@ import java.net.Inet4Address;
 import java.net.UnknownHostException;
 import java.security.PublicKey;
 import java.security.Security;
-import java.util.HashMap;
 import java.util.Map.Entry;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.commons.lang3.tuple.Pair;
 import org.slf4j.Logger;
@@ -17,7 +18,6 @@ import distributed.core.beans.Block;
 import distributed.core.beans.Message;
 import distributed.core.beans.MsgBlock;
 import distributed.core.beans.MsgInitialize;
-import distributed.core.beans.MsgTrans;
 import distributed.core.threads.ClientThread;
 import distributed.core.threads.ServerThread;
 import distributed.core.utilities.Constants;
@@ -34,7 +34,9 @@ public class NodeMiner {
 	private int id;
 	private int port;
 	private int numOfNodes;
-	private HashMap<PublicKey, Pair<String, Integer>> nodes; // TODO να γίνει κλάση ότι περιέχεται στο string ?
+	public AtomicBoolean alone;
+	private ConcurrentHashMap<PublicKey, Pair<String, Integer>> nodes; // TODO να γίνει κλάση ότι περιέχεται στο string ?
+	private ConcurrentHashMap<PublicKey, Integer> blockchainSizes;
 	private Blockchain blockchain;
 	// private HashMap<String, TransactionOutput> allUTXOs = new HashMap<String,
 	// TransactionOutput>();
@@ -44,7 +46,9 @@ public class NodeMiner {
 	public NodeMiner(int port) {
 		this.wallet = new Wallet();
 		this.currentBlock = new Block();
-		this.nodes = new HashMap<PublicKey, Pair<String, Integer>>();
+		alone = new AtomicBoolean(true);
+		this.nodes = new ConcurrentHashMap<PublicKey, Pair<String, Integer>>();
+		this.blockchainSizes = new ConcurrentHashMap<PublicKey, Integer>();
 		try {
 			this.address = Inet4Address.getLocalHost().getHostAddress();
 		} catch (UnknownHostException e) {
@@ -53,6 +57,41 @@ public class NodeMiner {
 		this.port = port;
 		nodes.put(wallet.getPublicKey(), Pair.of(address, port));
 		LOG.info("Starting miner in address={}:{}", address, port);
+	}
+
+	public void setSizeOfNodeChain() {
+		blockchainSizes.put(this.getPublicKey(), this.blockchain.getSize());
+
+	}
+
+	public void setSizeOfNodeChain(PublicKey key, int num) {
+		blockchainSizes.put(key, num);
+
+	}
+
+	public void deleteAllSizes() {
+		blockchainSizes.clear();
+	}
+
+	public int getChainSizeOther() {
+		return this.blockchainSizes.size();
+	}
+
+	public PublicKey getNodeLargestChain() {
+		int max = 0;
+		PublicKey argmax = null;
+		for (Entry<PublicKey, Integer> entry : blockchainSizes.entrySet()) {
+			int size = entry.getValue();
+			if (size > max) {
+				max = size;
+				argmax = entry.getKey();
+			}
+		}
+		if (max > blockchain.getSize()) {
+			return argmax;
+		} else {
+			return null;
+		}
 	}
 
 	public float getBalance() {
@@ -107,11 +146,11 @@ public class NodeMiner {
 		return port;
 	}
 
-	public HashMap<PublicKey, Pair<String, Integer>> getHashMap() {
+	public ConcurrentHashMap<PublicKey, Pair<String, Integer>> getHashMap() {
 		return nodes;
 	}
 
-	public void setNodes(HashMap<PublicKey, Pair<String, Integer>> _nodes) {
+	public void setNodes(ConcurrentHashMap<PublicKey, Pair<String, Integer>> _nodes) {
 		nodes = _nodes;
 	}
 
@@ -134,9 +173,7 @@ public class NodeMiner {
 		}
 	}
 
-	/*
-	 * todo : utility to mine a new Block
-	 */
+	/* todo : utility to mine a new Block */
 	public void mineBlock() {
 		LOG.info("Starting mine block");
 
@@ -145,7 +182,7 @@ public class NodeMiner {
 		String target = new String(new char[Constants.DIFFICULTY]).replace('\0', '0'); // Create a string with
 																						// difficulty * "0"
 		LOG.info("Check that hash of block starts with {} zeros", target);
-		while (!currentBlock.getCurrentHash().substring(0, Constants.DIFFICULTY).equals(target)) {
+		while (!currentBlock.getCurrentHash().substring(0, Constants.DIFFICULTY).equals(target) && alone.get()) {
 			currentBlock.setNonce(currentBlock.getNonce() + 1);
 			currentBlock.setCurrentHash(currentBlock.calculateHash());
 		}
@@ -162,6 +199,7 @@ public class NodeMiner {
 			}
 		}
 		currentBlock = new Block();
+		alone = new AtomicBoolean(true);
 	}
 
 	/**
@@ -207,14 +245,9 @@ public class NodeMiner {
 				continue;
 			}
 			(new ClientThread(entry.getValue().getLeft(), entry.getValue().getRight(), msg)).start();
-			/*try { //debug //gives catastrophic results!
-				if (msg instanceof MsgTrans) {
-					Thread.sleep(5000);
-				}
-			} catch (InterruptedException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
-			}*/
+			/* try { //debug //gives catastrophic results! if (msg instanceof MsgTrans) {
+			 * Thread.sleep(5000); } } catch (InterruptedException e) { // TODO
+			 * Auto-generated catch block e.printStackTrace(); } */
 		}
 	}
 
@@ -265,8 +298,9 @@ public class NodeMiner {
 		node.getBlockchain().printBlockChain();
 		LOG.info("Size of blockchain={}", node.getBlockchain().getSize());
 
-		/*
-		 * while (server.isRunning()) { // παρακαλουθούμε την είσοδο που δίνει ο χρήστης
+		server.setRunning(false);
+
+		/* while (server.isRunning()) { // παρακαλουθούμε την είσοδο που δίνει ο χρήστης
 		 * try {
 		 *
 		 * is = System.in; br = new BufferedReader(new InputStreamReader(is));
@@ -286,8 +320,7 @@ public class NodeMiner {
 		 * LOG.warn("Error while closing stream: " + ioe); } if (!server.isRunning()) {
 		 * server.getServerSocket().close(); break; }
 		 *
-		 * } }
-		 */
+		 * } } */
 	}
 
 }
