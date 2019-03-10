@@ -33,6 +33,22 @@ public class Transaction implements Serializable {
 		this.inputs = inputs;
 	}
 
+	public PublicKey getSenderAddress() {
+		return senderAddress;
+	}
+
+	public PublicKey getReceiverAddress() {
+		return receiverAddress;
+	}
+
+	public float getAmount() {
+		return amount;
+	}
+
+	public String getTransactionId() {
+		return transactionId;
+	}
+
 	public void setTransactionId(String id) {
 		this.transactionId = id;
 	}
@@ -88,18 +104,15 @@ public class Transaction implements Serializable {
 
 		// εμείς δε φαίνεται να έχουμε περιορισμό στο ελάχιστο ποσό που μπορούμε να
 		// στείλουμε
-		/*
-		 * if (getInputsValue() < Blockchain.getMinimumTransaction()) {
+		/* if (getInputsValue() < Blockchain.getMinimumTransaction()) {
 		 * LOG.warn("Transaction Inputs insuficient: " + getInputsValue());
-		 * LOG.info("Aborting transaction..."); return false; }
-		 */
+		 * LOG.info("Aborting transaction..."); return false; } */
 
 		// TODO check if I have suffiecient funds to send ???
 
 		// generate transaction outputs:
 		float leftOver = getInputsValue() - amount; // get value of inputs then the left over change:
 		LOG.debug("InputValue ={}", getInputsValue());
-		LOG.debug("Residual ={}", leftOver);
 		transactionId = calulateHash();
 		outputs.add(new TransactionOutput(this.receiverAddress, amount, transactionId)); // send value to recipient
 		outputs.add(new TransactionOutput(this.senderAddress, leftOver, transactionId)); // send the left over 'change'
@@ -113,6 +126,7 @@ public class Transaction implements Serializable {
 		// remove transaction inputs from UTXO lists as spent:
 		for (TransactionInput i : inputs) {
 			if (i.UTXO == null) {
+				LOG.warn("Input transactions was not found!");
 				continue; // if Transaction can't be found skip it // isn't it a problem ?
 			}
 			blockchain.getUTXOs().remove(i.UTXO.getId());
@@ -126,6 +140,7 @@ public class Transaction implements Serializable {
 		float total = 0;
 		for (TransactionInput i : inputs) {
 			if (i.UTXO == null) {
+				LOG.warn("Input transactions was not found!");
 				continue; // if Transaction can't be found skip it
 			}
 			total += i.UTXO.getValue();

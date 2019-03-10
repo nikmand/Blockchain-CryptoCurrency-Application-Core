@@ -9,6 +9,7 @@ import java.security.Security;
 import java.util.Map.Entry;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.lang.Thread;
 
 import org.apache.commons.lang3.tuple.Pair;
 import org.slf4j.Logger;
@@ -272,7 +273,7 @@ public class NodeMiner {
 			return;
 		}
 		int myPort = Integer.parseInt(args[0]);
-		int numOfNodes = 3;
+		int numOfNodes = 5;
 		if (args.length < 2) {
 			LOG.warn("Number of nodes wasn't specified, procedding with defaults which is 3!");
 		} else {
@@ -294,11 +295,12 @@ public class NodeMiner {
 		InputStream is = null;
 		BufferedReader br = null;
 
-		Thread.sleep(10000); // for debug
+		Thread.sleep(12000); // for debug
 		node.getBlockchain().printBlockChain();
 		LOG.info("Size of blockchain={}", node.getBlockchain().getSize());
 
-		server.setRunning(false);
+		server.getServerSocket().close(); // the server blocks in accept, close the socket
+		//LOG.info("Num of threads still running is {}", Thread.activeCount());
 
 		/* while (server.isRunning()) { // παρακαλουθούμε την είσοδο που δίνει ο χρήστης
 		 * try {

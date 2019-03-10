@@ -149,7 +149,7 @@ public class ClientServerThread extends Thread {
 				if (miner.getCurrentBlock().proceedWithMine()) {
 					miner.mineBlock();
 				} else {
-					LOG.warn("Problem with block! {}", miner.getCurrentBlock());
+					LOG.warn("Probably block is not full yet!");
 				}
 			}
 			LOG.debug("New balance is ={}", miner.getBalance());

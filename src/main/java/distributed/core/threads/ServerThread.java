@@ -87,7 +87,8 @@ public class ServerThread extends Thread {
 				cliSrvThread.setDaemon(false); // set to true
 				(cliSrvThread).start();
 			} catch (java.net.SocketException e) {
-				LOG.warn("Server shutted down.");
+				LOG.warn("Server is shutting down");
+				this.isRunning = false;
 			} catch (IOException e) {
 				e.printStackTrace();
 			}

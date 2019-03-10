@@ -30,8 +30,32 @@ public class Blockchain implements Serializable {
 		return blockchain.size();
 	}
 
+	public Block getLastBlock() {
+		int aux = blockchain.size();
+		if (aux > 0) {
+			return blockchain.get(aux - 1); // indexing is O(1) for ArrayList
+		} else {
+			LOG.warn("Blockchain");
+			return null;
+		}
+	}
+
+	public List<Transaction> getTransLastBlock() {
+		Block last = getLastBlock();
+		if (last != null) {
+			return last.getTransactions();
+		} else {
+			return null;
+		}
+	}
+
 	public String getLastHash() {
-		return blockchain.get(blockchain.size() - 1).getCurrentHash();
+		Block last = getLastBlock();
+		if (last != null) {
+			return last.getCurrentHash();
+		} else {
+			return null;
+		}
 	}
 
 	public void addToChain(Block b) {

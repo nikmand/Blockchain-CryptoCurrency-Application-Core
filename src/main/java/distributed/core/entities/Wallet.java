@@ -29,18 +29,15 @@ public class Wallet implements Serializable {
 	}
 
 	// τα κλειδιά άπαξ και δημιουργηθούν δεν πρέπει να αλλάζουν.
-	/*
-	 * public void setPrivateKey(PrivateKey privateKey) { this.privateKey =
-	 * privateKey; }
-	 */
+	/* public void setPrivateKey(PrivateKey privateKey) { this.privateKey =
+	 * privateKey; } */
 
 	public PublicKey getPublicKey() {
 		return publicKey;
 	}
 
-	/*
-	 * public void setPublicKey(PublicKey publicKey) { this.publicKey = publicKey; }
-	 */
+	/* public void setPublicKey(PublicKey publicKey) { this.publicKey = publicKey;
+	 * } */
 
 	/**
 	 * Function generating a new Keypair of public and private key for this wallet
@@ -88,7 +85,6 @@ public class Wallet implements Serializable {
 				total += utxid.getValue();
 			}
 		}
-		LOG.debug("My balance is {}", total);
 		return total;
 	}
 

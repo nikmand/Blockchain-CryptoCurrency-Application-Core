@@ -43,6 +43,10 @@ public class Block implements Serializable {
 		// προτού προσθεθούν trans
 	}
 
+	public List<Transaction> getTransactions() {
+		return transactions;
+	}
+
 	public String getPreviousHash() {
 		return previousHash;
 	}
@@ -87,9 +91,7 @@ public class Block implements Serializable {
 
 	}
 
-	/*
-	 * todo: Function that calculates the hash on the current block
-	 */
+	/* todo: Function that calculates the hash on the current block */
 	public String calculateHash() {
 		String calculatedhash = StringUtilities
 				.applySha256(previousHash + Long.toString(timestamp) + Integer.toString(nonce));
@@ -99,9 +101,7 @@ public class Block implements Serializable {
 		return calculatedhash;
 	}
 
-	/*
-	 * todo: Function that adds a Transaction on the current block if it is valid
-	 */
+	/* todo: Function that adds a Transaction on the current block if it is valid */
 	public boolean addTransaction(Transaction transaction, Blockchain blockchain) {
 		LOG.info("Start addTransaction");
 
