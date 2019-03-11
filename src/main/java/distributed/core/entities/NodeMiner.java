@@ -1,6 +1,7 @@
 package distributed.core.entities;
 
 import java.io.BufferedReader;
+import java.io.IOException;
 import java.io.InputStream;
 import java.net.Inet4Address;
 import java.net.UnknownHostException;
@@ -9,9 +10,9 @@ import java.security.Security;
 import java.util.Map.Entry;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.lang.Thread;
 
 import org.apache.commons.lang3.tuple.Pair;
+import org.apache.commons.lang3.tuple.Triple;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -23,20 +24,22 @@ import distributed.core.threads.ClientThread;
 import distributed.core.threads.ServerThread;
 import distributed.core.utilities.Constants;
 
-/*
+/* TODO make it singleton ?
  * Class that represents a miner.
  */
 public class NodeMiner {
 
 	private static final Logger LOG = LoggerFactory.getLogger(NodeMiner.class.getName());
 
-	private Wallet wallet;
+	private String id;
 	private String address;
-	private int id;
 	private int port;
+	private Wallet wallet;
+
 	private int numOfNodes;
 	public AtomicBoolean alone;
-	private ConcurrentHashMap<PublicKey, Pair<String, Integer>> nodes; // TODO να γίνει κλάση ότι περιέχεται στο string ?
+	private ConcurrentHashMap<PublicKey, Pair<String, Integer>> nodes; // TODO check what collection is optimal
+	private ConcurrentHashMap<String, Triple<PublicKey, String, Integer>> nodesId;
 	private ConcurrentHashMap<PublicKey, Integer> blockchainSizes;
 	private Blockchain blockchain;
 	// private HashMap<String, TransactionOutput> allUTXOs = new HashMap<String,
@@ -49,6 +52,7 @@ public class NodeMiner {
 		this.currentBlock = new Block();
 		alone = new AtomicBoolean(true);
 		this.nodes = new ConcurrentHashMap<PublicKey, Pair<String, Integer>>();
+		this.nodesId = new ConcurrentHashMap<String, Triple<PublicKey, String, Integer>>();
 		this.blockchainSizes = new ConcurrentHashMap<PublicKey, Integer>();
 		try {
 			this.address = Inet4Address.getLocalHost().getHostAddress();
@@ -67,7 +71,6 @@ public class NodeMiner {
 
 	public void setSizeOfNodeChain(PublicKey key, int num) {
 		blockchainSizes.put(key, num);
-
 	}
 
 	public void deleteAllSizes() {
@@ -107,11 +110,11 @@ public class NodeMiner {
 		this.currentBlock = currentBlock;
 	}
 
-	public int getId() {
+	public String getId() {
 		return id;
 	}
 
-	public void setId(int id) {
+	public void setId(String id) {
 		this.id = id;
 	}
 
@@ -167,6 +170,10 @@ public class NodeMiner {
 		return nodes.get(key);
 	}
 
+	public Triple<PublicKey, String, Integer> getNodeId(String id) {
+		return nodesId.get(id);
+	}
+
 	public void showNodes() {
 		for (Entry<PublicKey, Pair<String, Integer>> entry : nodes.entrySet()) {
 			LOG.info("Node with public key={} in address={}", entry.getKey(),
@@ -213,7 +220,8 @@ public class NodeMiner {
 		// about our server
 		if (address.equals(Constants.BOOTSTRAPADDRESS) && port == Constants.BOOTSTRAPPORT) {
 			LOG.info("I am the bootstrap node");
-			setId(0);
+			setId("id0");
+			nodesId.put(id, Triple.of(wallet.getPublicKey(), address, port));
 			Transaction genesisTrans = new Transaction(null, this.wallet.getPublicKey(), 100 * numOfNodes, null);
 			genesisTrans.setTransactionId("0");
 			// genesisTrans.generateSignature(wallet.getPrivateKey());
@@ -264,42 +272,15 @@ public class NodeMiner {
 	}
 
 	public static void main(String[] args) throws Exception {
-		Security.addProvider(new org.bouncycastle.jce.provider.BouncyCastleProvider());
-		// String myAddress = Inet4Address.getLocalHost().getHostAddress(); // args[0];
-		// // δε χρειάζεται δημιουργείται εξ
-		// ορισμού στην ip της εφαρμογής
-		if (args.length < 1) {
-			LOG.warn("A port number must be provided in order for the node to start. Exiting...");
-			return;
-		}
-		int myPort = Integer.parseInt(args[0]);
-		int numOfNodes = 5;
-		if (args.length < 2) {
-			LOG.warn("Number of nodes wasn't specified, procedding with defaults which is 3!");
-		} else {
-			numOfNodes = Integer.parseInt(args[1]);
-		}
 
-		NodeMiner node = new NodeMiner(myPort);
-		node.setNumOfNodes(numOfNodes);
-		node.setBlockchain(new Blockchain());
-		// Define new server
-		ServerThread server = new ServerThread(myPort, node);
+		NodeMiner node = null;
+		initializeBackEnd(args, node);
 
-		LOG.info("About to start server...");
-		server.start(); // εκκινούμε το thread του server όπου μας έρχονται μηνύματα
+		/* try { Thread.sleep(12000); } catch (InterruptedException e) { // TODO
+		 * Auto-generated catch block e.printStackTrace(); } // for debug
+		 * node.getBlockchain().printBlockChain(); LOG.info("Size of blockchain={}",
+		 * node.getBlockchain().getSize()); */
 
-		// connectToBootstrap(myAddress, myPort);
-		node.initiliazeNetoworkConnections();
-
-		InputStream is = null;
-		BufferedReader br = null;
-
-		Thread.sleep(12000); // for debug
-		node.getBlockchain().printBlockChain();
-		LOG.info("Size of blockchain={}", node.getBlockchain().getSize());
-
-		server.getServerSocket().close(); // the server blocks in accept, close the socket
 		//LOG.info("Num of threads still running is {}", Thread.activeCount());
 
 		/* while (server.isRunning()) { // παρακαλουθούμε την είσοδο που δίνει ο χρήστης
@@ -323,6 +304,50 @@ public class NodeMiner {
 		 * server.getServerSocket().close(); break; }
 		 *
 		 * } } */
+	}
+
+	public static void initializeBackEnd(String args[], NodeMiner node) throws IOException {
+		LOG.info("START initializing backend");
+
+		Security.addProvider(new org.bouncycastle.jce.provider.BouncyCastleProvider());
+		// String myAddress = Inet4Address.getLocalHost().getHostAddress(); // args[0];
+		// δε χρειάζεται δημιουργείται εξ ορισμού στην ip της εφαρμογής
+		// το πορτ θα μπορούσε να τίθεται αυτόματα διαλέγοντας κάποια πόρτα
+		if (args.length < 1) {
+			LOG.warn("A port number must be provided in order for the node to start. Exiting...");
+			return;
+		}
+		int myPort = Integer.parseInt(args[0]);
+		int numOfNodes = 3;
+		if (args.length < 2) {
+			LOG.warn("Number of nodes wasn't specified, procedding with defaults which is {}", numOfNodes);
+		} else {
+			numOfNodes = Integer.parseInt(args[1]);
+		}
+
+		node = new NodeMiner(myPort);
+		node.setNumOfNodes(numOfNodes);
+		node.setBlockchain(new Blockchain());
+		// Define new server
+		ServerThread server = new ServerThread(myPort, node);
+
+		LOG.info("About to start server...");
+		server.start(); // εκκινούμε το thread του server όπου μας έρχονται μηνύματα
+
+		// connectToBootstrap(myAddress, myPort);
+		node.initiliazeNetoworkConnections();
+
+		InputStream is = null;
+		BufferedReader br = null;
+
+		//server.getServerSocket().close();
+		try {
+			server.join();
+		} catch (InterruptedException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+
 	}
 
 }

@@ -76,11 +76,8 @@ public class ClientServerThread extends Thread {
 				MsgChain msgChain = new MsgChain(miner.getBlockchain());
 				//LOG.debug("num of utxos = {}", miner.getBlockchain().getUTXOs().size());
 				miner.broadcastMsg(msgChain); // broadcast το blockchain
-				try {
-					Thread.sleep(1000);
-				} catch (InterruptedException e) {
-					e.printStackTrace();
-				}
+				/* try { Thread.sleep(100); } catch (InterruptedException e) {
+				 * e.printStackTrace(); } */
 				// broadcast n-1 transactions
 				ConcurrentHashMap<PublicKey, Pair<String, Integer>> _nodes = miner.getHashMap();
 				for (Entry<PublicKey, Pair<String, Integer>> entry : _nodes.entrySet()) {
@@ -115,7 +112,7 @@ public class ClientServerThread extends Thread {
 			MsgNodeId msg = (MsgNodeId) message;
 			int id = msg.getId();
 			LOG.info("Hello me id is {}", id);
-			miner.setId(id);
+			miner.setId("id" + id);
 
 		} else if (message instanceof MsgNodesInfo) {
 

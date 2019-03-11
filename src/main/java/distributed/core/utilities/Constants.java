@@ -4,7 +4,7 @@ import java.net.Inet4Address;
 
 public class Constants {
 
-	public static String BOOTSTRAPADDRESS = false ? "10.124.209.234" : "192.168.1.97"; //58
+	public static String BOOTSTRAPADDRESS = false ? "10.124.209.234" : "192.168.1.58"; //58
 	public static final int BOOTSTRAPPORT = 4050;
 
 	public static final int DIFFICULTY = 4;
