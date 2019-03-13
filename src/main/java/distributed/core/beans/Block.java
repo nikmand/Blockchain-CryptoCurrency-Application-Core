@@ -30,7 +30,8 @@ public class Block implements Serializable {
 	private long timestamp;
 	private String currentHash = "111111111111111111111";
 	private int nonce;
-	private List<Transaction> transactions = new ArrayList<Transaction>();
+	private String merkleRoot;
+	private ArrayList<Transaction> transactions = new ArrayList<Transaction>();
 
 	public Block() {
 		this.timestamp = new Date().getTime();
@@ -41,6 +42,14 @@ public class Block implements Serializable {
 		this.timestamp = new Date().getTime();
 		// this.currentHash = calculateHash(); // δεν έχει νόημα να υπολογίζεται τώρα
 		// προτού προσθεθούν trans
+	}
+
+	public String getMerkleRoot() {
+		return merkleRoot;
+	}
+
+	public void setMerkleRoot() {
+		this.merkleRoot = StringUtilities.getMerkleRoot(transactions);
 	}
 
 	public List<Transaction> getTransactions() {
@@ -94,11 +103,19 @@ public class Block implements Serializable {
 	/* todo: Function that calculates the hash on the current block */
 	public String calculateHash() {
 		String calculatedhash = StringUtilities
-				.applySha256(previousHash + Long.toString(timestamp) + Integer.toString(nonce));
-		// add and content to obtain proper hash... + data
+				.applySha256(previousHash + Long.toString(timestamp) + Integer.toString(nonce) + merkleRoot);
+		// TODO add and content to obtain proper hash... + data
 		// anti na parei to hash olwn twn trans pou apoteloun to block pairnei kati pou
 		// legetai merkle tree
 		return calculatedhash;
+	}
+
+	private String prepareContent() {
+		String aux = previousHash + Long.toString(timestamp);
+		for (Transaction t : transactions) {
+			aux += t.getTransactionId();
+		}
+		return aux;
 	}
 
 	/* todo: Function that adds a Transaction on the current block if it is valid */
@@ -142,6 +159,11 @@ public class Block implements Serializable {
 	@Override
 	public String toString() {
 		return new GsonBuilder().setPrettyPrinting().create().toJson(this);
+	}
+
+	public void incNonce() {
+		this.nonce++;
+
 	}
 
 }

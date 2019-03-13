@@ -24,7 +24,16 @@ public class Blockchain implements Serializable {
 	private int difficulty;
 
 	private HashMap<String, TransactionOutput> UTXOs = new HashMap<String, TransactionOutput>();
+	private static Blockchain instance = new Blockchain();
+	public static String test;
 	// every node keeps unspend transactions
+
+	private Blockchain() {
+	}
+
+	public static Blockchain getInstance() {
+		return instance;
+	}
 
 	public int getSize() {
 		return blockchain.size();
@@ -85,7 +94,8 @@ public class Blockchain implements Serializable {
 	}
 
 	/**
-	 * Method checking if the list of blocks contained in this object is creates a
+	 * Method checking if the list of blocks contained in this object is creates
+	 * a
 	 * valid blockchain
 	 *
 	 * @return True, if the blockchain is valid, else false

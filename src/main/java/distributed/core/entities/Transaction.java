@@ -62,11 +62,12 @@ public class Transaction implements Serializable {
 	}
 
 	// This Calculates the transaction hash (which will be used as its Id)
+	// This happens during validation by each node
 	private String calulateHash() {
 		// TODO handle the case where two identical transactions have the same hash
-		return StringUtilities.applySha256(StringUtilities.getStringFromKey(senderAddress)
-				+ StringUtilities.getStringFromKey(receiverAddress) + Float.toString(amount) // + sequence
-		);
+		return StringUtilities.applySha256(
+				StringUtilities.getStringFromKey(senderAddress) + StringUtilities.getStringFromKey(receiverAddress)
+						+ Float.toString(amount) + inputs.get(0).getTransactionOutputId());
 	}
 
 	// Signs all the data we dont wish to be tampered with.
@@ -116,7 +117,7 @@ public class Transaction implements Serializable {
 		transactionId = calulateHash();
 		outputs.add(new TransactionOutput(this.receiverAddress, amount, transactionId)); // send value to recipient
 		outputs.add(new TransactionOutput(this.senderAddress, leftOver, transactionId)); // send the left over 'change'
-																							// back to sender
+																						// back to sender
 
 		// add outputs to Unspent list
 		for (TransactionOutput o : outputs) {
@@ -140,7 +141,7 @@ public class Transaction implements Serializable {
 		float total = 0;
 		for (TransactionInput i : inputs) {
 			if (i.UTXO == null) {
-				LOG.warn("Input transactions was not found!");
+				LOG.warn("Input transaction was not found!!");
 				continue; // if Transaction can't be found skip it
 			}
 			total += i.UTXO.getValue();

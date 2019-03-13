@@ -4,14 +4,17 @@ import java.security.PublicKey;
 
 public class MsgChainRequest extends Message {
 
-	public PublicKey publicKey;
+	//public PublicKey publicKey;
+	private String id;
 
-	public MsgChainRequest(PublicKey key) {
-		publicKey = key;
+	public MsgChainRequest(String id) {
+		this.id = id;
 	}
 
-	public PublicKey getPublicKey() {
-		return publicKey;
+	public String getId() {
+		return id;
 	}
+
+	/* public PublicKey getPublicKey() { return publicKey; } */
 
 }

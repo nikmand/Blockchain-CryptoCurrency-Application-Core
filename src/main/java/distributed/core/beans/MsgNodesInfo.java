@@ -5,16 +5,17 @@ import java.util.HashMap;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.commons.lang3.tuple.Pair;
+import org.apache.commons.lang3.tuple.Triple;
 
 public class MsgNodesInfo extends Message {
 
-	public ConcurrentHashMap<PublicKey, Pair<String, Integer>> nodes;
+	public ConcurrentHashMap<String, Triple<PublicKey, String, Integer>> nodes;
 
-	public MsgNodesInfo(ConcurrentHashMap<PublicKey, Pair<String, Integer>> _nodes) {
-		this.nodes = _nodes;
+	public MsgNodesInfo(ConcurrentHashMap<String, Triple<PublicKey, String, Integer>> concurrentHashMap) {
+		this.nodes = concurrentHashMap;
 	}
 
-	public ConcurrentHashMap<PublicKey, Pair<String, Integer>> getNodes() {
+	public ConcurrentHashMap<String, Triple<PublicKey, String, Integer>> getNodes() {
 		return nodes;
 	}
 

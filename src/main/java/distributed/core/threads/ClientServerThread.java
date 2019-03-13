@@ -9,6 +9,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.commons.lang3.SerializationUtils;
 import org.apache.commons.lang3.tuple.Pair;
+import org.apache.commons.lang3.tuple.Triple;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -56,7 +57,7 @@ public class ClientServerThread extends Thread {
 			MsgInitialize msg = (MsgInitialize) message;
 			PublicKey peerKey = msg.getPublicKey();
 			LOG.info("Node is a newbie and his public key is {}", peerKey);
-			miner.addNode(msg.getPublicKey(), Pair.of(msg.getIpAddress(), msg.getPort()));
+			miner.addNode(Triple.of(msg.getPublicKey(), msg.getIpAddress(), msg.getPort()));
 			int nodesSoFar = miner.numOfNodesInserted();
 			MsgNodeId newMsg = new MsgNodeId(nodesSoFar - 1);
 			(new ClientThread(msg.getIpAddress(), msg.getPort(), newMsg)).start();
@@ -76,18 +77,21 @@ public class ClientServerThread extends Thread {
 				MsgChain msgChain = new MsgChain(miner.getBlockchain());
 				//LOG.debug("num of utxos = {}", miner.getBlockchain().getUTXOs().size());
 				miner.broadcastMsg(msgChain); // broadcast το blockchain
-				/* try { Thread.sleep(100); } catch (InterruptedException e) {
-				 * e.printStackTrace(); } */
+				try {
+					Thread.sleep(100);
+				} catch (InterruptedException e) {
+					e.printStackTrace();
+				}
 				// broadcast n-1 transactions
-				ConcurrentHashMap<PublicKey, Pair<String, Integer>> _nodes = miner.getHashMap();
-				for (Entry<PublicKey, Pair<String, Integer>> entry : _nodes.entrySet()) {
-					if (entry.getKey().equals(miner.getPublicKey())) {
+				ConcurrentHashMap<String, Triple<PublicKey, String, Integer>> _nodes = miner.getHashMap();
+				for (Entry<String, Triple<PublicKey, String, Integer>> entry : _nodes.entrySet()) {
+					if (entry.getKey().equals(miner.getId())) {
 						LOG.info("I do not send money to myself!");
 						continue;
 					}
-					LOG.info("Sending money to node with public key={} in address={}", entry.getKey(),
-							entry.getValue().getLeft() + ":" + entry.getValue().getRight());
-					Transaction marshallPlan = miner.sendFunds(entry.getKey(), 100);
+					LOG.info("Sending money to node with public key={} in address={}", entry.getValue().getLeft(),
+							entry.getValue().getMiddle() + ":" + entry.getValue().getRight());
+					Transaction marshallPlan = miner.sendFunds(entry.getValue().getLeft(), 100);
 					Transaction deepCopy = SerializationUtils.clone(marshallPlan); // deep Copy the trans so it won't get modified while being broadcasting
 					MsgTrans msgTrans = new MsgTrans(deepCopy);
 					miner.getCurrentBlock().addTransaction(marshallPlan, miner.getBlockchain()); // validation happens here
@@ -124,14 +128,16 @@ public class ClientServerThread extends Thread {
 
 			LOG.info("Message sending us the blockchain was received");
 			MsgChain msg = (MsgChain) message;
-			miner.setBlockchain(msg.getChain());
-			Blockchain blockchain = miner.getBlockchain();
-			blockchain.printBlockChain();
-			//LOG.debug("num of utxos after send = {}", blockchain.getUTXOs().size());
-			if (blockchain.isBlockchainValid()) {
-				LOG.info("BlockChain is valid");
-			} else {
-				LOG.warn("BlockChain invalid!!");
+			synchronized (NodeMiner.lockBlockchain) {
+				miner.setBlockchain(msg.getChain()); // we set the blockchain!!! thead safety alert!
+				Blockchain blockchain = miner.getBlockchain();
+				blockchain.printBlockChain();
+				//LOG.debug("num of utxos after send = {}", blockchain.getUTXOs().size());
+				if (blockchain.isBlockchainValid()) {
+					LOG.info("BlockChain is valid");
+				} else {
+					LOG.warn("BlockChain invalid!!");
+				}
 			}
 
 		} else if (message instanceof MsgTrans) {
@@ -140,7 +146,7 @@ public class ClientServerThread extends Thread {
 			Transaction trans = msg.getTransaction();
 			LOG.info("A transaction was received! {}", trans);
 			// validate it !
-			synchronized (miner.getCurrentBlock()) {
+			synchronized (NodeMiner.lock) {
 				miner.getCurrentBlock().addTransaction(trans, miner.getBlockchain()); // validation happens here
 
 				if (miner.getCurrentBlock().proceedWithMine()) {
@@ -149,21 +155,21 @@ public class ClientServerThread extends Thread {
 					LOG.warn("Probably block is not full yet!");
 				}
 			}
-			LOG.debug("New balance is ={}", miner.getBalance());
+			//LOG.debug("New balance is ={}", miner.getBalance());
 
 		} else if (message instanceof MsgBlock) {
 
 			MsgBlock msgBlock = (MsgBlock) message;
 			Block block = msgBlock.getBlock();
 			LOG.info("A block was received! {}", block);
-			synchronized (miner.getBlockchain()) {
+			synchronized (NodeMiner.lockBlockchain) {
 				if (block.validateBlock(miner.getBlockchain().getLastHash())) {
+					miner.alone.set(false); // TODO check what happens if a block isn't mined at that time!!
 					miner.getBlockchain().addToChain(block);
-					miner.alone.set(false);
 					LOG.info("Block that was received added to chain");
 				} else {
 					LOG.warn("Invalid block received, block was {}", block);
-					MsgChainSizeRequest msgSize = new MsgChainSizeRequest(miner.getPublicKey());
+					MsgChainSizeRequest msgSize = new MsgChainSizeRequest(miner.getId());
 					LOG.info("Sending requests for blockchain size");
 					miner.setSizeOfNodeChain();
 					miner.broadcastMsg(msgSize);
@@ -175,27 +181,26 @@ public class ClientServerThread extends Thread {
 			LOG.info("Request for blockchain's size received");
 			MsgChainSizeRequest msgSize = (MsgChainSizeRequest) message;
 
-			PublicKey key = msgSize.getPublicKey();
-			Pair<String, Integer> value = miner.getNode(key);
+			String id = msgSize.getId();
+			Triple<PublicKey, String, Integer> value = miner.getNode(id);
 
-			MsgChainSizeResponse newMsg = new MsgChainSizeResponse(miner.getBlockchain().getSize(),
-					miner.getPublicKey());
-			(new ClientThread(value.getLeft(), value.getRight(), newMsg)).start();
+			MsgChainSizeResponse newMsg = new MsgChainSizeResponse(miner.getBlockchain().getSize(), miner.getId());
+			(new ClientThread(value.getMiddle(), value.getRight(), newMsg)).start();
 
 		} else if (message instanceof MsgChainSizeResponse) {
 
 			LOG.info("Msg with size of blockchain received");
 			MsgChainSizeResponse msgSize = (MsgChainSizeResponse) message;
-			miner.setSizeOfNodeChain(msgSize.getKey(), msgSize.getSize());
+			miner.setSizeOfNodeChain(msgSize.getId(), msgSize.getSize());
 			if (miner.getChainSizeOther() == miner.getNumOfNodes()) {
 				LOG.info("All sizes received, checking if there is bigger blockchain");
-				synchronized (miner.getBlockchain()) { // sync so our blockchain don't expand while on this step
-					PublicKey key = miner.getNodeLargestChain();
-					if (key != null) {
+				synchronized (NodeMiner.lockBlockchain) { // sync so our blockchain don't expand while on this step
+					String id = miner.getNodeLargestChain();
+					if (id != null) {
 						LOG.info("Bigger chain detected, sending request");
-						Pair<String, Integer> value = miner.getNode(key);
-						MsgChainRequest chainReq = new MsgChainRequest(miner.getPublicKey()); // λάθος η αίτηση περιέχει τα στοιχεία του node με τη μεγαλύτερη αλυσίδα
-						(new ClientThread(value.getLeft(), value.getRight(), chainReq)).start(); // send message to node with largest chain
+						Triple<PublicKey, String, Integer> value = miner.getNode(id);
+						MsgChainRequest chainReq = new MsgChainRequest(miner.getId()); // λάθος η αίτηση περιέχει τα στοιχεία του node με τη μεγαλύτερη αλυσίδα
+						(new ClientThread(value.getMiddle(), value.getRight(), chainReq)).start(); // send message to node with largest chain
 					} else {
 						LOG.info("There isn't a bigger chain");
 					}
@@ -211,9 +216,9 @@ public class ClientServerThread extends Thread {
 			MsgChain msgChain = new MsgChain(deepcopy);
 
 			MsgChainRequest msg = (MsgChainRequest) message;
-			PublicKey peerKey = msg.getPublicKey();
-			Pair<String, Integer> value = miner.getNode(peerKey);
-			(new ClientThread(value.getLeft(), value.getRight(), msgChain)).start();
+			String peerId = msg.getId();
+			Triple<PublicKey, String, Integer> value = miner.getNode(peerId);
+			(new ClientThread(value.getMiddle(), value.getRight(), msgChain)).start();
 
 		} else if (message instanceof MsgIsAlive) { // just for check
 

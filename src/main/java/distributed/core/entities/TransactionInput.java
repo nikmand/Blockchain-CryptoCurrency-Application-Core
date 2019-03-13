@@ -11,4 +11,8 @@ public class TransactionInput implements Serializable {
 		this.transactionOutputId = transactionOutputId;
 	}
 
+	public String getTransactionOutputId() {
+		return transactionOutputId;
+	}
+
 }
