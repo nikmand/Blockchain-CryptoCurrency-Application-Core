@@ -89,7 +89,7 @@ public class Blockchain implements Serializable {
 
 	public void printBlockChain() {
 		String blockchainJson = new GsonBuilder().setPrettyPrinting().create().toJson(blockchain);
-		LOG.info("Our block chain so far:");
+		LOG.info("Blockchain received is:");
 		LOG.info(blockchainJson);
 	}
 

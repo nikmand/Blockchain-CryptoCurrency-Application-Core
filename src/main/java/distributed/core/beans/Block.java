@@ -3,6 +3,8 @@ package distributed.core.beans;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 
 import org.slf4j.Logger;
@@ -11,6 +13,7 @@ import org.slf4j.LoggerFactory;
 import com.google.gson.GsonBuilder;
 
 import distributed.core.entities.Blockchain;
+import distributed.core.entities.NodeMiner;
 import distributed.core.entities.Transaction;
 import distributed.core.utilities.Constants;
 import distributed.core.utilities.StringUtilities;
@@ -118,6 +121,20 @@ public class Block implements Serializable {
 		return aux;
 	}
 
+	/**
+	 * Addition of any txn in block without
+	 * validation
+	 *
+	 * @param transaction
+	 * @return
+	 */
+	public boolean malAdd(Transaction transaction) {
+		LOG.info("START maladd");
+
+		transactions.add(transaction);
+		return true;
+	}
+
 	/* todo: Function that adds a Transaction on the current block if it is valid */
 	public boolean addTransaction(Transaction transaction, Blockchain blockchain) {
 		LOG.info("Start addTransaction");
@@ -125,7 +142,7 @@ public class Block implements Serializable {
 		if (transaction == null) {
 			LOG.info("Transaction was null, not added");
 			return false;
-		} else if (proceedWithMine()) {
+		} else if (proceedWithMine()) { // we cannot add txn if it is already full
 			LOG.warn("Block is full it should have alreary been mined!! Aborting...");
 			return false;
 		}
@@ -142,6 +159,7 @@ public class Block implements Serializable {
 	}
 
 	public boolean validateBlock(String previousHash) {
+		LOG.info("START validate block with previousHash={}", previousHash);
 		// compare registered hash and calculated hash:
 		if (!this.getCurrentHash().equals(this.calculateHash())) {
 			LOG.info("Current Hashes not equal");
@@ -153,6 +171,37 @@ public class Block implements Serializable {
 			LOG.info("Previous Hashes not equal");
 			return false;
 		}
+		return true;
+	}
+
+	public boolean validateReceivedBlock(String hash, NodeMiner miner) {
+
+		if (!validateBlock(hash)) {
+			return false;
+		}
+
+		LOG.info("Contining validation of received block");
+
+		HashSet<String> aux = new HashSet<String>(); // store id of txns of current block in a set for O(1) retrival
+		Iterator<Transaction> it = miner.getCurrentBlock().getTransactions().iterator();
+		while (it.hasNext()) { // TODO check if throws concurent modification exception
+			aux.add(it.next().getTransactionId());
+		}
+
+		for (Transaction t : transactions) {
+			if (t == null) {
+				LOG.debug("Transaction was null, continue"); // it doesn't cause trouble
+				continue;
+			}
+			if (aux.contains(t.getTransactionId())) { // ελέγχοντας το hash σημαίνει ότι πρόκειται για την ίδια συναλλαγή καθώς δε μπροεί να βρεθεί
+				LOG.debug("Txn is present at current block");  // ίδιο hash από άλλα δεδομένα
+				continue; // meaning it has been validated
+			}
+			if (!t.processTransaction(miner.getBlockchain())) { // validate txn
+				return false;
+			}
+		}
+
 		return true;
 	}
 

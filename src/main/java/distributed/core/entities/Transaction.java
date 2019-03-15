@@ -5,6 +5,7 @@ import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,14 +17,14 @@ import distributed.core.utilities.StringUtilities;
 public class Transaction implements Serializable {
 	public static final Logger LOG = LoggerFactory.getLogger(Transaction.class.getName());
 
-	public String transactionId; // this is also the hash of the transaction.
-	public PublicKey senderAddress; // senders address/public key.
-	public PublicKey receiverAddress; // Recipients address/public key.
-	public float amount;
-	public byte[] signature; // this is to prevent anybody else from spending funds in our wallet.
+	private String transactionId; // this is also the hash of the transaction.
+	private PublicKey senderAddress; // senders address/public key.
+	private PublicKey receiverAddress; // Recipients address/public key.
+	private float amount;
+	private byte[] signature; // this is to prevent anybody else from spending funds in our wallet.
 
-	public ArrayList<TransactionInput> inputs = new ArrayList<TransactionInput>();
-	public ArrayList<TransactionOutput> outputs = new ArrayList<TransactionOutput>();
+	private ArrayList<TransactionInput> inputs = new ArrayList<TransactionInput>();
+	private ArrayList<TransactionOutput> outputs = new ArrayList<TransactionOutput>();
 
 	public Transaction(PublicKey senderAddress, PublicKey receiverAddress, float amount,
 			ArrayList<TransactionInput> inputs) {
@@ -64,31 +65,36 @@ public class Transaction implements Serializable {
 	// This Calculates the transaction hash (which will be used as its Id)
 	// This happens during validation by each node
 	private String calulateHash() {
-		// TODO handle the case where two identical transactions have the same hash
-		return StringUtilities.applySha256(
-				StringUtilities.getStringFromKey(senderAddress) + StringUtilities.getStringFromKey(receiverAddress)
-						+ Float.toString(amount) + inputs.get(0).getTransactionOutputId());
+		return StringUtilities.applySha256(formData()
+		/*				StringUtilities.getStringFromKey(senderAddress) + StringUtilities.getStringFromKey(receiverAddress)
+								+ Float.toString(amount) + inputs.get(0).getTransactionOutputId()*/
+		);
+	}
+
+	private String formData() {
+		return StringUtilities.getStringFromKey(senderAddress) + StringUtilities.getStringFromKey(receiverAddress)
+				+ Float.toString(amount)
+				+ inputs.stream().map(TransactionInput::getTransactionOutputId).collect(Collectors.joining(""));
 	}
 
 	// Signs all the data we dont wish to be tampered with.
-
 	public void generateSignature(PrivateKey privateKey) {
 		String data = StringUtilities.getStringFromKey(senderAddress)
 				+ StringUtilities.getStringFromKey(receiverAddress) + Float.toString(amount);
-		signature = StringUtilities.applyECDSASig(privateKey, data);
+		signature = StringUtilities.applyECDSASig(privateKey, formData());
 	}
 
 	// Verifies the data we signed hasnt been tampered with
 	public boolean verifiySignature() {
 		String data = StringUtilities.getStringFromKey(senderAddress)
 				+ StringUtilities.getStringFromKey(receiverAddress) + Float.toString(amount);
-		return StringUtilities.verifyECDSASig(senderAddress, data, signature);
+		return StringUtilities.verifyECDSASig(senderAddress, formData(), signature);
 	}
 
 	// Returns true if new transaction could be created.
 	// It also checks the validity of a transaction
 	public boolean processTransaction(Blockchain blockchain) { // rename to validateTransactions
-		LOG.info("START validate transaction");
+		LOG.info("START validate transaction");	// needs exclusive access to lock and lockblochain
 
 		if (verifiySignature() == false) {
 			LOG.warn("Transaction Signature failed to verify");
@@ -98,7 +104,12 @@ public class Transaction implements Serializable {
 		// gather transaction inputs (Make sure they are unspent):
 		for (TransactionInput i : inputs) { // τα έχει δημιουργήσει η sendFunds του wallet
 			LOG.debug("Size of unspent trans = {}", blockchain.getUTXOs().size());
-			i.UTXO = blockchain.getUTXOs().get(i.transactionOutputId); // θέτει το unspend output για τα trans
+			TransactionOutput aux = blockchain.getUTXOs().get(i.transactionOutputId);
+			if (aux == null) {
+				LOG.warn("Output txn of input txn it's not in UTXOs. Aborting txn...");
+				return false;
+			}
+			i.UTXO = aux;  // θέτει το unspend output για τα trans
 
 		}
 		LOG.debug("Size of input trans ={}", inputs.size());
@@ -113,6 +124,10 @@ public class Transaction implements Serializable {
 
 		// generate transaction outputs:
 		float leftOver = getInputsValue() - amount; // get value of inputs then the left over change:
+		if (leftOver < 0) {
+			LOG.warn("Value of input txns is not enough. Aborting txn....");
+			return false;
+		}
 		LOG.debug("InputValue ={}", getInputsValue());
 		transactionId = calulateHash();
 		outputs.add(new TransactionOutput(this.receiverAddress, amount, transactionId)); // send value to recipient
@@ -133,6 +148,17 @@ public class Transaction implements Serializable {
 			blockchain.getUTXOs().remove(i.UTXO.getId());
 		}
 
+		return true;
+	}
+
+	public boolean validateBlockTran() {
+		LOG.info("Validation of txn in a block start ");
+
+		if (verifiySignature() == false) {
+			LOG.warn("Transaction Signature failed to verify");
+			return false;
+		}
+		// TODO validate txns but in a modified way
 		return true;
 	}
 

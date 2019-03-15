@@ -1,7 +1,6 @@
 package distributed.core.entities;
 
 import java.io.BufferedReader;
-import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -9,6 +8,7 @@ import java.net.Inet4Address;
 import java.net.UnknownHostException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.Security;
 import java.util.Map.Entry;
@@ -50,8 +50,9 @@ public class NodeMiner {
 	// TransactionOutput>();
 	private Block currentBlock;
 	private ServerThread server;
-	public static String lock;
-	public static String lockBlockchain;
+	public static String lock = "locked";
+	public static String lockBlockchain = "blocked";
+	public static String mining = "mining";
 	private static NodeMiner instance;
 
 	private NodeMiner() {
@@ -67,8 +68,6 @@ public class NodeMiner {
 			LOG.warn("Cannot find host address");
 		}
 		//nodes.put(wallet.getPublicKey(), Pair.of(address, port));
-		lock = "locked";
-		lockBlockchain = "blocked";
 		LOG.info("Starting miner in address={}:{}", address, port);
 	}
 
@@ -169,6 +168,10 @@ public class NodeMiner {
 		return this.wallet.getPublicKey();
 	}
 
+	public PrivateKey getPrivateKey() {
+		return this.wallet.getPrivateKey();
+	}
+
 	public Blockchain getBlockchain() {
 		return blockchain;
 	}
@@ -226,25 +229,32 @@ public class NodeMiner {
 		LOG.info("Starting mine block");
 
 		// Block currentBlock = new Block(null); // todo proper call to constructor
-		currentBlock.setPreviousHash(blockchain.getLastHash());
+		synchronized (mining) {
+			currentBlock.setPreviousHash(blockchain.getLastHash());
+			alone.compareAndSet(false, true);
+		}
 		currentBlock.setMerkleRoot();
-		String target = new String(new char[Constants.DIFFICULTY]).replace('\0', '0'); // Create a string with
-																						// difficulty * "0"
+		String target = new String(new char[Constants.DIFFICULTY]).replace('\0', '0'); // Create a string with difficulty * "0"
+																						// TODO move it elsewhere it's always the same
 		LOG.info("Check that hash of block starts with {} zeros", target);
 		while (!currentBlock.getCurrentHash().substring(0, Constants.DIFFICULTY).equals(target) && alone.get()) {
 			currentBlock.incNonce();
 			currentBlock.setCurrentHash(currentBlock.calculateHash());
 		}
-		LOG.info("Block Mined with hash value={}", currentBlock.getCurrentHash());
-		// add to block chain set new block as the current
 		synchronized (lockBlockchain) {
-			if (currentBlock.validateBlock(blockchain.getLastHash())) {
-				LOG.info("Block added to chain");
-				blockchain.addToChain(currentBlock);
-				MsgBlock msgBlock = new MsgBlock(currentBlock);
-				broadcastMsg(msgBlock);
-			} else {
+			if (alone.get()) {
+				LOG.info("Block Mined with hash value={}", currentBlock.getCurrentHash());
+				// add to block chain set new block as the current
+				//if (currentBlock.validateBlock(blockchain.getLastHash())) { // το κάνουμε validate γτ με τη μεταβλητή alone παραγουμε μη valid
+				LOG.info("Block added to chain");						// απ τη στιγμή που τέθηκε το previousHash μεχρι τι στιγμή που πάμε να μπούμε
+				blockchain.addToChain(currentBlock);					// μπορεί να έχει αλλάξει λόγω έλευσης chain από consensus θέλουμε να το απo
+				MsgBlock msgBlock = new MsgBlock(currentBlock);			// άρα δούλευε το validation μεχρι να βρούμε κάτι άλλο
+				broadcastMsg(msgBlock);									// αλλιώς πρέπει να κάνουμε και alone false στη λήψη chain.
+				/*} else {
 				LOG.warn("Invalid block detected, not broadcasted, block was {}", currentBlock);
+				}*/
+			} else {
+				// TODO handle the transactions that were included in our block and now it is getting rejected
 			}
 		}
 		currentBlock = new Block();
@@ -410,7 +420,7 @@ public class NodeMiner {
 			return null;
 		}
 		int myPort = Integer.parseInt(args[0]);
-		int numOfNodes = 5;
+		int numOfNodes = 3;
 		if (args.length < 2) {
 			LOG.warn("Number of nodes wasn't specified, procedding with defaults which is {}", numOfNodes);
 		} else {

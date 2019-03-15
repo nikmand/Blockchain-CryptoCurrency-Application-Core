@@ -78,7 +78,7 @@ public class ClientServerThread extends Thread {
 				//LOG.debug("num of utxos = {}", miner.getBlockchain().getUTXOs().size());
 				miner.broadcastMsg(msgChain); // broadcast το blockchain
 				try {
-					Thread.sleep(100);
+					Thread.sleep(1000);
 				} catch (InterruptedException e) {
 					e.printStackTrace();
 				}
@@ -95,8 +95,8 @@ public class ClientServerThread extends Thread {
 					Transaction deepCopy = SerializationUtils.clone(marshallPlan); // deep Copy the trans so it won't get modified while being broadcasting
 					MsgTrans msgTrans = new MsgTrans(deepCopy);
 					miner.getCurrentBlock().addTransaction(marshallPlan, miner.getBlockchain()); // validation happens here
-					miner.broadcastMsg(msgTrans); //first broadcast then validated it
-					//if it isn't valid?
+					miner.broadcastMsg(msgTrans);
+					// TODO handle the case when txn isn't valid?
 					if (miner.getCurrentBlock().proceedWithMine()) {
 						miner.mineBlock();
 					}
@@ -129,12 +129,15 @@ public class ClientServerThread extends Thread {
 			LOG.info("Message sending us the blockchain was received");
 			MsgChain msg = (MsgChain) message;
 			synchronized (NodeMiner.lockBlockchain) {
-				miner.setBlockchain(msg.getChain()); // we set the blockchain!!! thead safety alert!
-				Blockchain blockchain = miner.getBlockchain();
+				Blockchain blockchain = msg.getChain();
 				blockchain.printBlockChain();
 				//LOG.debug("num of utxos after send = {}", blockchain.getUTXOs().size());
 				if (blockchain.isBlockchainValid()) {
-					LOG.info("BlockChain is valid");
+					synchronized (NodeMiner.mining) {
+						LOG.info("BlockChain is valid");
+						miner.alone.compareAndSet(true, false);
+						miner.setBlockchain(blockchain);
+					}
 				} else {
 					LOG.warn("BlockChain invalid!!");
 				}
@@ -146,7 +149,7 @@ public class ClientServerThread extends Thread {
 			Transaction trans = msg.getTransaction();
 			LOG.info("A transaction was received! {}", trans);
 			// validate it !
-			synchronized (NodeMiner.lock) {
+			synchronized (NodeMiner.lock) { // lock εδώ, ώστε κάθε στιγμή να μπορεί να προστεθεί μόνο μία txn στο μπλοκ
 				miner.getCurrentBlock().addTransaction(trans, miner.getBlockchain()); // validation happens here
 
 				if (miner.getCurrentBlock().proceedWithMine()) {
@@ -162,11 +165,16 @@ public class ClientServerThread extends Thread {
 			MsgBlock msgBlock = (MsgBlock) message;
 			Block block = msgBlock.getBlock();
 			LOG.info("A block was received! {}", block);
-			synchronized (NodeMiner.lockBlockchain) {
-				if (block.validateBlock(miner.getBlockchain().getLastHash())) {
-					miner.alone.set(false); // TODO check what happens if a block isn't mined at that time!!
-					miner.getBlockchain().addToChain(block);
-					LOG.info("Block that was received added to chain");
+			boolean flag; // problem we want this to advance and break the the minning!
+			//synchronized (NodeMiner.lock) { // we need this lock cause we don't want anybody else to add txns
+			synchronized (NodeMiner.lockBlockchain) { // we need this cause ... to add block in chain after we performed our validation
+				flag = block.validateReceivedBlock(miner.getBlockchain().getLastHash(), miner);
+				if (flag) {
+					synchronized (NodeMiner.mining) {
+						miner.alone.compareAndSet(true, false); // TODO check what happens if a block isn't mined at that time!! is this the reason we are getting 111111...?
+						miner.getBlockchain().addToChain(block);
+						LOG.info("Block that was received added to chain");
+					}
 				} else {
 					LOG.warn("Invalid block received, block was {}", block);
 					MsgChainSizeRequest msgSize = new MsgChainSizeRequest(miner.getId());
@@ -175,6 +183,7 @@ public class ClientServerThread extends Thread {
 					miner.broadcastMsg(msgSize);
 				}
 			}
+			//}
 
 		} else if (message instanceof MsgChainSizeRequest) {
 
@@ -191,7 +200,7 @@ public class ClientServerThread extends Thread {
 
 			LOG.info("Msg with size of blockchain received");
 			MsgChainSizeResponse msgSize = (MsgChainSizeResponse) message;
-			miner.setSizeOfNodeChain(msgSize.getId(), msgSize.getSize());
+			miner.setSizeOfNodeChain(msgSize.getId(), msgSize.getSize()); // race condition on size collection add synchronized
 			if (miner.getChainSizeOther() == miner.getNumOfNodes()) {
 				LOG.info("All sizes received, checking if there is bigger blockchain");
 				synchronized (NodeMiner.lockBlockchain) { // sync so our blockchain don't expand while on this step

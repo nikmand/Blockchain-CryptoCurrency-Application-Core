@@ -5,9 +5,15 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import distributed.core.entities.Transaction;
 
 public class StringUtilities {
+
+	public static final Logger LOG = LoggerFactory.getLogger(StringUtilities.class.getName());
+
 	/**
 	 * Function that applies the hash function to a string
 	 *
@@ -60,6 +66,12 @@ public class StringUtilities {
 
 	// Verifies a String signature
 	public static boolean verifyECDSASig(PublicKey publicKey, String data, byte[] signature) {
+		LOG.trace("START verify signature");
+
+		if (signature == null) {
+			return false;
+		}
+
 		try {
 			Signature ecdsaVerify = Signature.getInstance("ECDSA", "BC");
 			ecdsaVerify.initVerify(publicKey);
@@ -75,7 +87,7 @@ public class StringUtilities {
 
 		List<String> previousTreeLayer = new ArrayList<String>();
 		for (Transaction transaction : transactions) {
-			previousTreeLayer.add(transaction.transactionId);
+			previousTreeLayer.add(transaction.getTransactionId());
 		}
 		List<String> treeLayer = previousTreeLayer;
 
