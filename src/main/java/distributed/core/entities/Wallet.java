@@ -1,46 +1,48 @@
 package distributed.core.entities;
 
 import java.io.Serializable;
-import java.security.*;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.PrivateKey;
+import java.security.PublicKey;
+import java.security.SecureRandom;
 import java.security.spec.ECGenParameterSpec;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class Wallet implements Serializable {
+public class Wallet implements Serializable { // TODO make it singleton
 
 	private static final Logger LOG = LoggerFactory.getLogger(Wallet.class.getName());
 
 	private PrivateKey privateKey;
 	private PublicKey publicKey;
 
-	public HashMap<String, TransactionOutput> utxids = new HashMap<String, TransactionOutput>(); // only UTXOs owned by
-																									// this wallet.
+	public HashMap<String, TransactionOutput> utxids = new HashMap<String, TransactionOutput>(); // only UTXOs owned by this wallet.
 
 	public Wallet() {
 		generateKeyPair();
+	}
+
+	public HashMap<String, TransactionOutput> getUtxids() {
+		return utxids;
 	}
 
 	public PrivateKey getPrivateKey() {
 		return privateKey;
 	}
 
-	// τα κλειδιά άπαξ και δημιουργηθούν δεν πρέπει να αλλάζουν.
-	/* public void setPrivateKey(PrivateKey privateKey) { this.privateKey =
-	 * privateKey; } */
-
 	public PublicKey getPublicKey() {
 		return publicKey;
 	}
 
-	/* public void setPublicKey(PublicKey publicKey) { this.publicKey = publicKey;
-	 * } */
-
 	/**
-	 * Function generating a new Keypair of public and private key for this wallet
+	 * Function generating a new Keypair of public and private key for this
+	 * wallet
 	 *
 	 * @return
 	 */
@@ -74,7 +76,7 @@ public class Wallet implements Serializable {
 	 *            (unspent transactions)
 	 * @return the balance as float
 	 */
-	public float getBalance(HashMap<String, TransactionOutput> allUTXOs) {
+	public float getBalance(ConcurrentHashMap<String, TransactionOutput> allUTXOs) {
 		LOG.info("Start getBalance");
 
 		float total = 0;
@@ -89,7 +91,8 @@ public class Wallet implements Serializable {
 	}
 
 	/**
-	 * Creates and returns a transaction from this wallet to a recipient knowing its
+	 * Creates and returns a transaction from this wallet to a recipient knowing
+	 * its
 	 * public key
 	 *
 	 * @param _recipient
@@ -97,7 +100,8 @@ public class Wallet implements Serializable {
 	 * @param allUTXOs
 	 * @return
 	 */
-	public Transaction sendFunds(PublicKey _recipient, float value, HashMap<String, TransactionOutput> allUTXOs) {
+	public Transaction sendFunds(PublicKey _recipient, float value,
+			ConcurrentHashMap<String, TransactionOutput> allUTXOs) {
 		LOG.info("Starting sendFunds");
 
 		if (getBalance(allUTXOs) < value) {

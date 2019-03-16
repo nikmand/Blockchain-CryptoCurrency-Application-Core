@@ -5,6 +5,7 @@ import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
@@ -65,16 +66,15 @@ public class Transaction implements Serializable {
 	// This Calculates the transaction hash (which will be used as its Id)
 	// This happens during validation by each node
 	private String calulateHash() {
-		return StringUtilities.applySha256(formData()
-		/*				StringUtilities.getStringFromKey(senderAddress) + StringUtilities.getStringFromKey(receiverAddress)
-								+ Float.toString(amount) + inputs.get(0).getTransactionOutputId()*/
-		);
+		return StringUtilities.applySha256(formData());
 	}
 
 	private String formData() {
 		return StringUtilities.getStringFromKey(senderAddress) + StringUtilities.getStringFromKey(receiverAddress)
 				+ Float.toString(amount)
-				+ inputs.stream().map(TransactionInput::getTransactionOutputId).collect(Collectors.joining(""));
+				+ (inputs == null ? ""
+						: inputs.stream().map(TransactionInput::getTransactionOutputId)
+								.collect(Collectors.joining("")));
 	}
 
 	// Signs all the data we dont wish to be tampered with.
@@ -93,8 +93,8 @@ public class Transaction implements Serializable {
 
 	// Returns true if new transaction could be created.
 	// It also checks the validity of a transaction
-	public boolean processTransaction(Blockchain blockchain) { // rename to validateTransactions
-		LOG.info("START validate transaction");	// needs exclusive access to lock and lockblochain
+	public boolean validateTransaction(ConcurrentHashMap<String, TransactionOutput> UTXOs) {
+		LOG.info("START validateTransaction");	// needs exclusive access to lock and lockTxn
 
 		if (verifiySignature() == false) {
 			LOG.warn("Transaction Signature failed to verify");
@@ -103,8 +103,8 @@ public class Transaction implements Serializable {
 
 		// gather transaction inputs (Make sure they are unspent):
 		for (TransactionInput i : inputs) { // τα έχει δημιουργήσει η sendFunds του wallet
-			LOG.debug("Size of unspent trans = {}", blockchain.getUTXOs().size());
-			TransactionOutput aux = blockchain.getUTXOs().get(i.transactionOutputId);
+			LOG.debug("Size of unspent trans = {}", UTXOs.size());
+			TransactionOutput aux = UTXOs.get(i.transactionOutputId);
 			if (aux == null) {
 				LOG.warn("Output txn of input txn it's not in UTXOs. Aborting txn...");
 				return false;
@@ -113,14 +113,6 @@ public class Transaction implements Serializable {
 
 		}
 		LOG.debug("Size of input trans ={}", inputs.size());
-
-		// εμείς δε φαίνεται να έχουμε περιορισμό στο ελάχιστο ποσό που μπορούμε να
-		// στείλουμε
-		/* if (getInputsValue() < Blockchain.getMinimumTransaction()) {
-		 * LOG.warn("Transaction Inputs insuficient: " + getInputsValue());
-		 * LOG.info("Aborting transaction..."); return false; } */
-
-		// TODO check if I have suffiecient funds to send ???
 
 		// generate transaction outputs:
 		float leftOver = getInputsValue() - amount; // get value of inputs then the left over change:
@@ -136,7 +128,8 @@ public class Transaction implements Serializable {
 
 		// add outputs to Unspent list
 		for (TransactionOutput o : outputs) {
-			blockchain.getUTXOs().put(o.getId(), o);
+			// TODO αν υπάρχει ήδη το output return false μας πρόλαβαν
+			UTXOs.put(o.getId(), o);
 		}
 
 		// remove transaction inputs from UTXO lists as spent:
@@ -145,13 +138,14 @@ public class Transaction implements Serializable {
 				LOG.warn("Input transactions was not found!");
 				continue; // if Transaction can't be found skip it // isn't it a problem ?
 			}
-			blockchain.getUTXOs().remove(i.UTXO.getId());
-		}
-
+			// αν δεν υπάρχει πριν το remove to input μας πρόλαβαν abort
+			UTXOs.remove(i.UTXO.getId()); // λογικα δεν κινδυνεύουμε να σβήνει ο ένας ένα trans και ο 
+		}												  // άλλος άλλο οπότε να φάνε άκυρο και οι δύο καθώς αυτά εξετάζονται με την ίδια σειρά  	
+		// αφού είναι το ίδιο τρανς ίδια Input list klp
 		return true;
 	}
 
-	public boolean validateBlockTran() {
+	private boolean validateBlockTran() { // to be removed
 		LOG.info("Validation of txn in a block start ");
 
 		if (verifiySignature() == false) {

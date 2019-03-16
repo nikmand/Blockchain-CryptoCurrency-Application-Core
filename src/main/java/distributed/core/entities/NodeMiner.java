@@ -11,9 +11,12 @@ import java.nio.file.Paths;
 import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.Security;
+import java.util.ArrayList;
 import java.util.Map.Entry;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import org.apache.commons.lang3.SerializationUtils;
@@ -26,6 +29,7 @@ import distributed.core.beans.Message;
 import distributed.core.beans.MsgBlock;
 import distributed.core.beans.MsgInitialize;
 import distributed.core.beans.MsgTrans;
+import distributed.core.exceptions.InvalidHashException;
 import distributed.core.threads.ClientThread;
 import distributed.core.threads.ServerThread;
 import distributed.core.utilities.Constants;
@@ -46,13 +50,11 @@ public class NodeMiner {
 	private ConcurrentHashMap<String, Triple<PublicKey, String, Integer>> nodesId;
 	private ConcurrentHashMap<String, Integer> blockchainSizes;
 	private Blockchain blockchain;
-	// private HashMap<String, TransactionOutput> allUTXOs = new HashMap<String,
-	// TransactionOutput>();
 	private Block currentBlock;
 	private ServerThread server;
 	public static String lock = "locked";
 	public static String lockBlockchain = "blocked";
-	public static String mining = "mining";
+	public static String lockTxn = "mining";
 	private static NodeMiner instance;
 
 	private NodeMiner() {
@@ -73,6 +75,11 @@ public class NodeMiner {
 
 	public static NodeMiner getInstance() {
 		return instance;
+	}
+
+	public ConcurrentHashMap<String, TransactionOutput> getUTXOs() {
+		return blockchain.getUTXOs();
+
 	}
 
 	public void setPort(int port) {
@@ -141,27 +148,79 @@ public class NodeMiner {
 		this.id = id;
 	}
 
-	public void createAndSend(String id, float amount) {
-		Triple<PublicKey, String, Integer> aux = nodesId.get(id);
-		sendTrans(sendFunds(aux.getLeft(), amount));
+	public void createAndSend(String _id, float amount) {
+		if (_id.equals(id)) {
+			LOG.warn("I do not send money to myself!");
+			return;
+		}
+		Triple<PublicKey, String, Integer> aux = nodesId.get(_id);
+		sendTxnMine(sendFunds(aux.getLeft(), amount));
 	}
 
-	public void sendTrans(Transaction t) {
+	public void sendTxnMine(Transaction t) {
 		Transaction deepCopy = SerializationUtils.clone(t); // deep Copy the trans so it won't get modified while being broadcasting
 		MsgTrans msgTrans = new MsgTrans(deepCopy);
 		synchronized (lock) {
-			this.getCurrentBlock().addTransaction(t, this.getBlockchain()); // validation happens here
-			// TODO handle the case that trans is not valid
-			this.broadcastMsg(msgTrans); //first broadcast then validated it
-			//if it isn't valid?
-			if (this.getCurrentBlock().proceedWithMine()) {
-				this.mineBlock();
+			boolean isTxnValid = this.getCurrentBlock().addTransaction(t, this.getBlockchain()); // validation happens here
+			if (isTxnValid) {
+				this.broadcastMsg(msgTrans);
+				if (this.getCurrentBlock().proceedWithMine()) {
+					this.mineBlock();
+				}
+			} else {
+				LOG.warn("Transactions wasn't valid. Discarding it...");
 			}
 		}
 	}
 
 	public Transaction sendFunds(PublicKey _recipient, float value) {
 		return this.wallet.sendFunds(_recipient, value, blockchain.getUTXOs());
+	}
+
+	public boolean validateReceivedBlock(Block received, String hashOfPreivousBlock) {
+
+		InvalidHashException exception = null;
+		try {
+			if (!received.validateBlock(hashOfPreivousBlock)) {
+				return false;
+			}
+		} catch (InvalidHashException e) { // catch exception
+			exception = e;
+		}
+
+		LOG.debug("Continue validation of received block");
+
+		Set<String> aux = currentBlock.getTransactions().stream().map(Transaction::getTransactionId)
+				.collect(Collectors.toSet());
+
+		for (Transaction t : received.getTransactions()) {
+			if (t == null) {
+				LOG.warn("Transaction was null, continue"); // it doesn't cause trouble
+				continue;
+			}
+			synchronized (lockTxn) {
+				String id = t.getTransactionId();
+				if (aux.contains(id)) { // ελέγχοντας το hash σημαίνει ότι πρόκειται για την ίδια συναλλαγή καθώς δε μπροεί να βρεθεί
+					LOG.debug("Txn is present at current block");  // ίδιο hash από άλλα δεδομένα
+					currentBlock.removeTxn(id);
+					// TODO remove from Set also? if the new block contains two times the same txn it's problem
+					continue; // meaning it has been validated
+				}
+				if (!t.validateTransaction(getUTXOs())) { // validate txn
+					// TODO blacklist the node that sent it
+					return false;
+				}
+			}
+		}
+
+		if (exception != null) { // throw it only if other checks succeeded, so we don't send requests for invalid blocks
+			throw exception;
+		}
+		return true;
+	}
+
+	public Wallet getWallet() {
+		return wallet;
 	}
 
 	public PublicKey getPublicKey() {
@@ -224,15 +283,16 @@ public class NodeMiner {
 	 * entry.getKey(), entry.getValue().getLeft() + ":" +
 	 * entry.getValue().getRight()); } } */
 
-	/* todo : utility to mine a new Block */
 	public void mineBlock() {
-		LOG.info("Starting mine block");
+		LOG.debug("START mining block");
 
-		// Block currentBlock = new Block(null); // todo proper call to constructor
-		synchronized (mining) {
+		ArrayList<Transaction> aux = null;
+		synchronized (lockBlockchain) {
 			currentBlock.setPreviousHash(blockchain.getLastHash());
+			currentBlock.setIndex(blockchain.getSize());
 			alone.compareAndSet(false, true);
 		}
+
 		currentBlock.setMerkleRoot();
 		String target = new String(new char[Constants.DIFFICULTY]).replace('\0', '0'); // Create a string with difficulty * "0"
 																						// TODO move it elsewhere it's always the same
@@ -250,29 +310,31 @@ public class NodeMiner {
 				blockchain.addToChain(currentBlock);					// μπορεί να έχει αλλάξει λόγω έλευσης chain από consensus θέλουμε να το απo
 				MsgBlock msgBlock = new MsgBlock(currentBlock);			// άρα δούλευε το validation μεχρι να βρούμε κάτι άλλο
 				broadcastMsg(msgBlock);									// αλλιώς πρέπει να κάνουμε και alone false στη λήψη chain.
-				/*} else {
-				LOG.warn("Invalid block detected, not broadcasted, block was {}", currentBlock);
-				}*/
 			} else {
-				// TODO handle the transactions that were included in our block and now it is getting rejected
+				LOG.warn("Invalid block detected, not broadcasted, block was {}", currentBlock);
+				aux = currentBlock.getTransactions();
 			}
 		}
 		currentBlock = new Block();
-		alone = new AtomicBoolean(true);
+		if (aux != null) {
+			currentBlock.setTransactions(aux); // include unseen TXNs from rejected block which are already validated 
+		}
+		if (currentBlock.proceedWithMine()) { // if non of the txns was in the block that was received and accepted start mining rigth away
+			mineBlock();
+		}
+		//alone = new AtomicBoolean(true); // δεν έχει νόημα αφού θα τεθεί όταν το νέο block πάει να γίνει mine
 	}
 
 	/**
-	 * todo : Utility to initiliaze any network connections. Call upon start
+	 * Utility to initiliaze any network connections. Call upon start
 	 */
-	// TODO σε περίπτωση αποτυχίας να περιμένει ένα διάστημα και έπειτα να
-	// ξαναπροσπαθεί να συνθεδεί
 	public void initiliazeNetoworkConnections() {
+		LOG.debug("START initialization of network connections");
 		// TODO do we need to check if server is running ? propably not we don't care
 		// about our server
 		if (address.equals(Constants.BOOTSTRAPADDRESS) && port == Constants.BOOTSTRAPPORT) {
 			LOG.info("I am the bootstrap node");
 			setId("id0");
-			Blockchain.test = "fouli";
 			nodesId.put(id, Triple.of(wallet.getPublicKey(), address, port));
 			Transaction genesisTrans = new Transaction(null, this.wallet.getPublicKey(), 100 * numOfNodes, null);
 			genesisTrans.setTransactionId("0");
@@ -284,6 +346,7 @@ public class NodeMiner {
 
 			Block genesisBlock = new Block("1");
 			genesisBlock.setNonce(0);
+			genesisBlock.setIndex(0);
 			genesisBlock.addTransaction(genesisTrans, blockchain);
 			genesisBlock.calculateHash();
 			blockchain.addToChain(genesisBlock);
@@ -292,23 +355,20 @@ public class NodeMiner {
 			return;
 		} else {
 			MsgInitialize message = new MsgInitialize(this.wallet.getPublicKey(), this.address, this.port);
-			(new ClientThread(Constants.BOOTSTRAPADDRESS, Constants.BOOTSTRAPPORT, message)).start();
+			(new ClientThread(Constants.BOOTSTRAPADDRESS, Constants.BOOTSTRAPPORT, message)).start(); // retry if connection fails ?
 		}
 	}
 
 	public void broadcastMsg(Message msg) {
-		LOG.info("Start broadcasting message");
-		//LOG.trace("Start broadcasting message={}", msg);
+		LOG.debug("Start broadcasting message");
 
 		for (Entry<String, Triple<PublicKey, String, Integer>> entry : nodesId.entrySet()) {
 			if (entry.getValue().getLeft().equals(this.getPublicKey())) {
-				// Do not send it back to myself
 				continue;
 			}
 			(new ClientThread(entry.getValue().getMiddle(), entry.getValue().getRight(), msg)).start();
 			/* try { //debug //gives catastrophic results! if (msg instanceof MsgTrans) {
-			 * Thread.sleep(5000); } } catch (InterruptedException e) { // TODO
-			 * Auto-generated catch block e.printStackTrace(); } */
+			 * Thread.sleep(5000); } } catch (InterruptedException e) { e.printStackTrace(); } */
 		}
 	}
 
@@ -319,7 +379,7 @@ public class NodeMiner {
 	 * @param broadcast
 	 * @return whether the transaction was added or not
 	 */
-	public boolean addTransactionToBlockchain(Transaction transaction, boolean broadcast) {
+	private boolean addTransactionToBlockchain(Transaction transaction, boolean broadcast) {
 		return false;
 	}
 
@@ -330,11 +390,9 @@ public class NodeMiner {
 		try {
 			Thread.sleep(13000);
 		} catch (InterruptedException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 
-		LOG.info(Blockchain.test);
 		node.getBlockchain().printBlockChain();
 		LOG.info("Size of blockchain={}", node.getBlockchain().getSize());
 		//node.getServer().getServerSocket().close();

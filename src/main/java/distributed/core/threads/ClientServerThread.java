@@ -8,7 +8,6 @@ import java.util.Map.Entry;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.commons.lang3.SerializationUtils;
-import org.apache.commons.lang3.tuple.Pair;
 import org.apache.commons.lang3.tuple.Triple;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,6 +27,7 @@ import distributed.core.beans.MsgTrans;
 import distributed.core.entities.Blockchain;
 import distributed.core.entities.NodeMiner;
 import distributed.core.entities.Transaction;
+import distributed.core.exceptions.InvalidHashException;
 
 public class ClientServerThread extends Thread {
 
@@ -51,66 +51,43 @@ public class ClientServerThread extends Thread {
 		this.miner = _miner;
 	}
 
+	// Function that handles the received message
 	private void handleMessage(Message message) {
-		// Function that handles the received message
+		LOG.trace("START handle message");
+
 		if (message instanceof MsgInitialize) { // μηνύματα initialize θα λάβει μόνο ο boostrap node
 			MsgInitialize msg = (MsgInitialize) message;
 			PublicKey peerKey = msg.getPublicKey();
+
 			LOG.info("Node is a newbie and his public key is {}", peerKey);
 			miner.addNode(Triple.of(msg.getPublicKey(), msg.getIpAddress(), msg.getPort()));
 			int nodesSoFar = miner.numOfNodesInserted();
+
 			MsgNodeId newMsg = new MsgNodeId(nodesSoFar - 1);
 			(new ClientThread(msg.getIpAddress(), msg.getPort(), newMsg)).start();
-			// την απάντηση μπορούμε να τη στείλουμε στο ίδιο socket?
-			/* LOG.info("peer address = {}",
-			 * socket.getInetAddress().toString().substring(1));
-			 * LOG.info("peer address = {}", socket.getRemoteSocketAddress());
-			 * LOG.info("peer address = {}", socket.getPort()); */
-			// Pair<String, Integer> aux = miner.getNode(peerKey); // δε χρειάζεται να τα
-			// ψάξουμε
 
 			if (nodesSoFar == miner.getNumOfNodes()) { // ενέργειες που κάνουμε μόλις εισαχθούν όλοι
-				// server.getMiner().broadcastMsg(new MsgIsAlive());
+
 				LOG.info("All nodes sent their info, replying with the collection of nodes and the blockchain");
 				MsgNodesInfo msgInfo = new MsgNodesInfo(miner.getHashMap());
 				miner.broadcastMsg(msgInfo); // broadcast τη δομή με τα στοιχεία των κόμβων
+
 				MsgChain msgChain = new MsgChain(miner.getBlockchain());
-				//LOG.debug("num of utxos = {}", miner.getBlockchain().getUTXOs().size());
-				miner.broadcastMsg(msgChain); // broadcast το blockchain
+				miner.broadcastMsg(msgChain); // broadcast blockchain
+
 				try {
-					Thread.sleep(1000);
+					Thread.sleep(1000);	// wait in order others to catch up
 				} catch (InterruptedException e) {
 					e.printStackTrace();
 				}
+
 				// broadcast n-1 transactions
-				ConcurrentHashMap<String, Triple<PublicKey, String, Integer>> _nodes = miner.getHashMap();
-				for (Entry<String, Triple<PublicKey, String, Integer>> entry : _nodes.entrySet()) {
-					if (entry.getKey().equals(miner.getId())) {
-						LOG.info("I do not send money to myself!");
-						continue;
-					}
-					LOG.info("Sending money to node with public key={} in address={}", entry.getValue().getLeft(),
-							entry.getValue().getMiddle() + ":" + entry.getValue().getRight());
-					Transaction marshallPlan = miner.sendFunds(entry.getValue().getLeft(), 100);
-					Transaction deepCopy = SerializationUtils.clone(marshallPlan); // deep Copy the trans so it won't get modified while being broadcasting
-					MsgTrans msgTrans = new MsgTrans(deepCopy);
-					miner.getCurrentBlock().addTransaction(marshallPlan, miner.getBlockchain()); // validation happens here
-					miner.broadcastMsg(msgTrans);
-					// TODO handle the case when txn isn't valid?
-					if (miner.getCurrentBlock().proceedWithMine()) {
-						miner.mineBlock();
-					}
+				for (int i = 1; i < nodesSoFar; i++) {
+					miner.createAndSend("id" + i, 100);
 					LOG.debug("New balance is ={}", miner.getBalance());
 					//break; // for debug
 				}
-				/* for (;;) { MsgTrans msgTrans = new MsgTrans(new Transaction());
-				 * miner.broadcastMsg(msgTrans); } */
 			}
-			// socket.getPort(), message)).start();
-			/* ObjectOutputStream outputStream; try { outputStream = new
-			 * ObjectOutputStream(this.socket.getOutputStream());
-			 * outputStream.writeObject(new_msg); } catch (IOException e) { // TODO
-			 * Auto-generated catch block e.printStackTrace(); } */
 		} else if (message instanceof MsgNodeId) {
 
 			MsgNodeId msg = (MsgNodeId) message;
@@ -130,14 +107,15 @@ public class ClientServerThread extends Thread {
 			MsgChain msg = (MsgChain) message;
 			synchronized (NodeMiner.lockBlockchain) {
 				Blockchain blockchain = msg.getChain();
+				LOG.info("Blockchain received is:");
 				blockchain.printBlockChain();
 				//LOG.debug("num of utxos after send = {}", blockchain.getUTXOs().size());
-				if (blockchain.isBlockchainValid()) {
-					synchronized (NodeMiner.mining) {
-						LOG.info("BlockChain is valid");
-						miner.alone.compareAndSet(true, false);
-						miner.setBlockchain(blockchain);
-					}
+				if (blockchain.validateChain()) {
+					//synchronized (NodeMiner.mining) {
+					LOG.info("BlockChain is valid");
+					miner.alone.compareAndSet(true, false);
+					miner.setBlockchain(blockchain);
+					//}
 				} else {
 					LOG.warn("BlockChain invalid!!");
 				}
@@ -165,25 +143,26 @@ public class ClientServerThread extends Thread {
 			MsgBlock msgBlock = (MsgBlock) message;
 			Block block = msgBlock.getBlock();
 			LOG.info("A block was received! {}", block);
-			boolean flag; // problem we want this to advance and break the the minning!
-			//synchronized (NodeMiner.lock) { // we need this lock cause we don't want anybody else to add txns
-			synchronized (NodeMiner.lockBlockchain) { // we need this cause ... to add block in chain after we performed our validation
-				flag = block.validateReceivedBlock(miner.getBlockchain().getLastHash(), miner);
-				if (flag) {
-					synchronized (NodeMiner.mining) {
-						miner.alone.compareAndSet(true, false); // TODO check what happens if a block isn't mined at that time!! is this the reason we are getting 111111...?
-						miner.getBlockchain().addToChain(block);
-						LOG.info("Block that was received added to chain");
-					}
-				} else {
+			boolean flag;
+			synchronized (NodeMiner.lockBlockchain) {
+				try {
+					flag = miner.validateReceivedBlock(block, miner.getBlockchain().getLastHash());
+				} catch (InvalidHashException e) {
 					LOG.warn("Invalid block received, block was {}", block);
 					MsgChainSizeRequest msgSize = new MsgChainSizeRequest(miner.getId());
 					LOG.info("Sending requests for blockchain size");
 					miner.setSizeOfNodeChain();
 					miner.broadcastMsg(msgSize);
+					return;
+				}
+				if (flag) {
+					miner.alone.compareAndSet(true, false);
+					miner.getBlockchain().addToChain(block);
+					LOG.info("Block that was received added to chain");
+				} else {
+					LOG.warn("Invalid block received, block was {}", block);
 				}
 			}
-			//}
 
 		} else if (message instanceof MsgChainSizeRequest) {
 
