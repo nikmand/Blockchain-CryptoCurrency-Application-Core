@@ -28,7 +28,6 @@ public class NetworkingITest {
 				try {
 					NodeMiner.main(args2);
 				} catch (Exception e) {
-					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}
 			}
@@ -45,7 +44,6 @@ public class NetworkingITest {
 				try {
 					NodeMiner.main(args2);
 				} catch (Exception e) {
-					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}
 			}
@@ -61,7 +59,6 @@ public class NetworkingITest {
 				try {
 					NodeMiner.main(args2);
 				} catch (Exception e) {
-					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}
 			}

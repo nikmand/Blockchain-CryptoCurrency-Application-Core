@@ -21,14 +21,13 @@ public class MaliciousMiner {
 		try {
 			Thread.sleep(13000);
 		} catch (InterruptedException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 
 		node.getBlockchain().printBlockChain();
 		LOG.info("Size of blockchain={}", node.getBlockchain().getSize());
 
-		// TODO check what happens if we broadcast trans first
+		// todo check what happens if we broadcast trans first
 
 		//1st case: attaching to block a txn for which we don't have sufficient funds
 		LOG.info("Setting txn with insufficient funds");
@@ -54,10 +53,10 @@ public class MaliciousMiner {
 		/*		LOG.info("Setting txn as another node");
 				Transaction malTransId = new Transaction(node.getNode("id0").getLeft(), node.getPublicKey(), 90, null);
 				malTransId.generateSignature(node.getPrivateKey());
-
+		
 				MsgTrans msgTrans = new MsgTrans(malTransId);
 				node.broadcastMsg(msgTrans);
-
+		
 				Block malBlockId = new Block();
 				malBlockId.malAdd(malTransId);
 				node.setCurrentBlock(malBlockId);
@@ -68,7 +67,6 @@ public class MaliciousMiner {
 		try {
 			Thread.sleep(13000);
 		} catch (InterruptedException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 

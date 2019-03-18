@@ -87,7 +87,7 @@ public class StringUtilities {
 
 		List<String> previousTreeLayer = new ArrayList<String>();
 		for (Transaction transaction : transactions) {
-			previousTreeLayer.add(transaction.getTransactionId());
+			previousTreeLayer.add(transaction.getTransactionId()); // προσθέτουμε τα hash όλων των txns ενός μπλοκ
 		}
 		List<String> treeLayer = previousTreeLayer;
 

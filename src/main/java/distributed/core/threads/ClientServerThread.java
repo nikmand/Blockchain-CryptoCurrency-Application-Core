@@ -4,10 +4,11 @@ import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.net.Socket;
 import java.security.PublicKey;
-import java.util.Map.Entry;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.stream.Collectors;
 
-import org.apache.commons.lang3.SerializationUtils;
+import org.apache.commons.lang3.tuple.Pair;
 import org.apache.commons.lang3.tuple.Triple;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,6 +16,7 @@ import org.slf4j.LoggerFactory;
 import distributed.core.beans.Block;
 import distributed.core.beans.Message;
 import distributed.core.beans.MsgBlock;
+import distributed.core.beans.MsgBlocks;
 import distributed.core.beans.MsgChain;
 import distributed.core.beans.MsgChainRequest;
 import distributed.core.beans.MsgChainSizeRequest;
@@ -130,11 +132,11 @@ public class ClientServerThread extends Thread {
 			synchronized (NodeMiner.lock) { // lock εδώ, ώστε κάθε στιγμή να μπορεί να προστεθεί μόνο μία txn στο μπλοκ
 				miner.getCurrentBlock().addTransaction(trans, miner.getBlockchain()); // validation happens here
 
-				if (miner.getCurrentBlock().proceedWithMine()) {
-					miner.mineBlock();
-				} else {
+				//if (miner.getCurrentBlock().proceedWithMine()) {
+				miner.mineBlock();
+				/*} else {
 					LOG.warn("Probably block is not full yet!");
-				}
+				}*/
 			}
 			//LOG.debug("New balance is ={}", miner.getBalance());
 
@@ -146,7 +148,7 @@ public class ClientServerThread extends Thread {
 			boolean flag;
 			synchronized (NodeMiner.lockBlockchain) {
 				try {
-					flag = miner.validateReceivedBlock(block, miner.getBlockchain().getLastHash());
+					flag = miner.validateReceivedBlock(block, miner.getBlockchain().getLastHash(), null);
 				} catch (InvalidHashException e) {
 					LOG.warn("Invalid block received, block was {}", block);
 					MsgChainSizeRequest msgSize = new MsgChainSizeRequest(miner.getId());
@@ -176,8 +178,8 @@ public class ClientServerThread extends Thread {
 			(new ClientThread(value.getMiddle(), value.getRight(), newMsg)).start();
 
 		} else if (message instanceof MsgChainSizeResponse) {
-
 			LOG.info("Msg with size of blockchain received");
+
 			MsgChainSizeResponse msgSize = (MsgChainSizeResponse) message;
 			miner.setSizeOfNodeChain(msgSize.getId(), msgSize.getSize()); // race condition on size collection add synchronized
 			if (miner.getChainSizeOther() == miner.getNumOfNodes()) {
@@ -187,7 +189,9 @@ public class ClientServerThread extends Thread {
 					if (id != null) {
 						LOG.info("Bigger chain detected, sending request");
 						Triple<PublicKey, String, Integer> value = miner.getNode(id);
-						MsgChainRequest chainReq = new MsgChainRequest(miner.getId()); // λάθος η αίτηση περιέχει τα στοιχεία του node με τη μεγαλύτερη αλυσίδα
+						List<String> hashes = miner.getBlockchain().getBlockchain().stream().map(Block::getCurrentHash)
+								.collect(Collectors.toList());
+						MsgChainRequest chainReq = new MsgChainRequest(miner.getId(), hashes);
 						(new ClientThread(value.getMiddle(), value.getRight(), chainReq)).start(); // send message to node with largest chain
 					} else {
 						LOG.info("There isn't a bigger chain");
@@ -198,15 +202,29 @@ public class ClientServerThread extends Thread {
 			}
 
 		} else if (message instanceof MsgChainRequest) {
-			//TODO send only blocks that are missing from peer not the whole blockchain
 			LOG.info("Message requesting blockchain received");
-			Blockchain deepcopy = SerializationUtils.clone(miner.getBlockchain());
-			MsgChain msgChain = new MsgChain(deepcopy);
 
 			MsgChainRequest msg = (MsgChainRequest) message;
 			String peerId = msg.getId();
+			List<String> hashes = msg.getHashes();
+
+			Pair<ArrayList<Block>, Integer> aux = miner.getBlockchain().findDiff(hashes);
+			ArrayList<Block> blocks = aux.getKey();
+			Integer index = aux.getValue();
+			if (blocks == null || index == null) {
+				LOG.warn("Unable to find difference in blockchain. Aborting...");
+				return;
+			}
+			MsgBlocks msgBlocks = new MsgBlocks(blocks, index);
+
 			Triple<PublicKey, String, Integer> value = miner.getNode(peerId);
-			(new ClientThread(value.getMiddle(), value.getRight(), msgChain)).start();
+			(new ClientThread(value.getMiddle(), value.getRight(), msgBlocks)).start();
+
+		} else if (message instanceof MsgBlocks) {
+
+			LOG.info("Message sending blocks was received");
+			MsgBlocks msg = (MsgBlocks) message;
+			miner.getBlockchain().handleBlocks(msg.getBlocks(), msg.getIndex(), miner);
 
 		} else if (message instanceof MsgIsAlive) { // just for check
 

@@ -15,16 +15,22 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class Wallet implements Serializable { // TODO make it singleton
+public class Wallet implements Serializable {
+	// it's singleton
 
 	private static final Logger LOG = LoggerFactory.getLogger(Wallet.class.getName());
 
 	private PrivateKey privateKey;
 	private PublicKey publicKey;
+	private static Wallet instance = new Wallet();
 
 	public HashMap<String, TransactionOutput> utxids = new HashMap<String, TransactionOutput>(); // only UTXOs owned by this wallet.
 
-	public Wallet() {
+	public static Wallet getInstance() {
+		return instance;
+	}
+
+	private Wallet() {
 		generateKeyPair();
 	}
 
@@ -77,7 +83,7 @@ public class Wallet implements Serializable { // TODO make it singleton
 	 * @return the balance as float
 	 */
 	public float getBalance(ConcurrentHashMap<String, TransactionOutput> allUTXOs) {
-		LOG.info("Start getBalance");
+		LOG.debug("Start getBalance");
 
 		float total = 0;
 		for (HashMap.Entry<String, TransactionOutput> entry : allUTXOs.entrySet()) {

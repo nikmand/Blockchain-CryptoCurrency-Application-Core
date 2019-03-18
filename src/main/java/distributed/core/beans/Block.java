@@ -114,6 +114,7 @@ public class Block implements Serializable {
 		if (transactions.size() == Constants.CAPACITY) {
 			return true;
 		} else if (transactions.size() < Constants.CAPACITY) {
+			LOG.warn("Probably block is not full yet!");
 			return false;
 		} else {
 			LOG.warn("Block is oversized!!!");
@@ -122,13 +123,11 @@ public class Block implements Serializable {
 
 	}
 
-	/* todo: Function that calculates the hash on the current block */
+	/* Function that calculates the hash on the current block */
 	public String calculateHash() {
 		String calculatedhash = StringUtilities
 				.applySha256(previousHash + Long.toString(timestamp) + Integer.toString(nonce) + merkleRoot);
-		// TODO add and content to obtain proper hash... + data
-		// anti na parei to hash olwn twn trans pou apoteloun to block pairnei kati pou
-		// legetai merkle tree
+		// anti na parei to hash olwn twn trans pou apoteloun to block pairnei merkle root
 		return calculatedhash;
 	}
 
@@ -192,40 +191,6 @@ public class Block implements Serializable {
 		return true;
 	}
 
-	private boolean validateReceivedBlock(String hash, ConcurrentHashMap<String, TransactionOutput> UTXOs,
-			Block current) {
-
-		if (!validateBlock(hash)) {
-			return false;
-		}
-
-		LOG.info("Continue validation of received block");
-
-		Set<String> aux = current.getTransactions().stream().map(Transaction::getTransactionId)
-				.collect(Collectors.toSet());
-
-		for (Transaction t : transactions) {
-			if (t == null) {
-				LOG.debug("Transaction was null, continue"); // it doesn't cause trouble
-				continue;
-			}
-			synchronized (NodeMiner.lockTxn) {
-				String id = t.getTransactionId();
-				if (aux.contains(id)) { // ελέγχοντας το hash σημαίνει ότι πρόκειται για την ίδια συναλλαγή καθώς δε μπροεί να βρεθεί
-					LOG.debug("Txn is present at current block");  // ίδιο hash από άλλα δεδομένα
-					current.removeTxn(id);
-					continue; // meaning it has been validated
-				}
-				if (!t.validateTransaction(UTXOs)) { // validate txn
-					// TODO blacklist the node that sent it
-					return false;
-				}
-			}
-		}
-
-		return true;
-	}
-
 	public void incNonce() {
 		this.nonce++;
 
@@ -234,72 +199,6 @@ public class Block implements Serializable {
 	@Override
 	public String toString() {
 		return new GsonBuilder().setPrettyPrinting().create().toJson(this);
-	}
-
-	@Override
-	public int hashCode() {
-		final int prime = 31;
-		int result = 1;
-		result = prime * result + ((currentHash == null) ? 0 : currentHash.hashCode());
-		result = prime * result + index;
-		result = prime * result + ((merkleRoot == null) ? 0 : merkleRoot.hashCode());
-		result = prime * result + nonce;
-		result = prime * result + ((previousHash == null) ? 0 : previousHash.hashCode());
-		result = prime * result + (int) (timestamp ^ (timestamp >>> 32));
-		result = prime * result + ((transactions == null) ? 0 : transactions.hashCode());
-		return result;
-	}
-
-	@Override
-	public boolean equals(Object obj) {
-		if (this == obj) {
-			return true;
-		}
-		if (obj == null) {
-			return false;
-		}
-		if (getClass() != obj.getClass()) {
-			return false;
-		}
-		Block other = (Block) obj;
-		if (currentHash == null) {
-			if (other.currentHash != null) {
-				return false;
-			}
-		} else if (!currentHash.equals(other.currentHash)) {
-			return false;
-		}
-		if (index != other.index) {
-			return false;
-		}
-		if (merkleRoot == null) {
-			if (other.merkleRoot != null) {
-				return false;
-			}
-		} else if (!merkleRoot.equals(other.merkleRoot)) {
-			return false;
-		}
-		if (nonce != other.nonce) {
-			return false;
-		}
-		if (previousHash == null) {
-			if (other.previousHash != null) {
-				return false;
-			}
-		} else if (!previousHash.equals(other.previousHash)) {
-			return false;
-		}
-		if (timestamp != other.timestamp) {
-			return false;
-		}
-		if (transactions == null) {
-			if (other.transactions != null) {
-				return false;
-			}
-		} /*else if (!transactions.equals(other.transactions)) { // TODO specify equallity for TXN
-			return false;
-			}*/
-		return true;
 	}
 
 }
