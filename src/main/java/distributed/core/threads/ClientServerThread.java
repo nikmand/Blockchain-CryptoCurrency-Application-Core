@@ -30,6 +30,7 @@ import distributed.core.entities.Blockchain;
 import distributed.core.entities.NodeMiner;
 import distributed.core.entities.Transaction;
 import distributed.core.exceptions.InvalidHashException;
+import distributed.core.utilities.Constants;
 
 public class ClientServerThread extends Thread {
 
@@ -68,10 +69,10 @@ public class ClientServerThread extends Thread {
 			MsgNodeId newMsg = new MsgNodeId(nodesSoFar - 1);
 			(new ClientThread(msg.getIpAddress(), msg.getPort(), newMsg)).start();
 
-			if (nodesSoFar == miner.getNumOfNodes()) { // ενέργειες που κάνουμε μόλις εισαχθούν όλοι
+			if (nodesSoFar == Constants.NUM_OF_NODES) { // ενέργειες που κάνουμε μόλις εισαχθούν όλοι
 
 				LOG.info("All nodes sent their info, replying with the collection of nodes and the blockchain");
-				MsgNodesInfo msgInfo = new MsgNodesInfo(miner.getHashMap());
+				MsgNodesInfo msgInfo = new MsgNodesInfo(miner.getHashMap(), miner.getNodesPid());
 				miner.broadcastMsg(msgInfo); // broadcast τη δομή με τα στοιχεία των κόμβων
 
 				MsgChain msgChain = new MsgChain(miner.getBlockchain());
@@ -101,6 +102,7 @@ public class ClientServerThread extends Thread {
 
 			MsgNodesInfo msg = (MsgNodesInfo) message;
 			miner.setNodes(msg.getNodes());
+			miner.setNodesPid(msg.getNodesPid());
 			// miner.showNodes();
 
 		} else if (message instanceof MsgChain) {
@@ -128,6 +130,7 @@ public class ClientServerThread extends Thread {
 			MsgTrans msg = (MsgTrans) message;
 			Transaction trans = msg.getTransaction();
 			LOG.info("A transaction was received! {}", trans);
+			NodeMiner.transReceived++;
 			// validate it !
 			synchronized (NodeMiner.lock) { // lock εδώ, ώστε κάθε στιγμή να μπορεί να προστεθεί μόνο μία txn στο μπλοκ
 				miner.getCurrentBlock().addTransaction(trans, miner.getBlockchain()); // validation happens here
@@ -182,12 +185,12 @@ public class ClientServerThread extends Thread {
 
 			MsgChainSizeResponse msgSize = (MsgChainSizeResponse) message;
 			miner.setSizeOfNodeChain(msgSize.getId(), msgSize.getSize()); // race condition on size collection add synchronized
-			if (miner.getChainSizeOther() == miner.getNumOfNodes()) {
+			if (miner.getChainSizeOther() == Constants.NUM_OF_NODES) {
 				LOG.info("All sizes received, checking if there is bigger blockchain");
 				synchronized (NodeMiner.lockBlockchain) { // sync so our blockchain don't expand while on this step
 					String id = miner.getNodeLargestChain();
 					if (id != null) {
-						LOG.info("Bigger chain detected, sending request");
+						LOG.info("Bigger chain detected, sending request to node {}", id);
 						Triple<PublicKey, String, Integer> value = miner.getNode(id);
 						List<String> hashes = miner.getBlockchain().getBlockchain().stream().map(Block::getCurrentHash)
 								.collect(Collectors.toList());
@@ -207,8 +210,10 @@ public class ClientServerThread extends Thread {
 			MsgChainRequest msg = (MsgChainRequest) message;
 			String peerId = msg.getId();
 			List<String> hashes = msg.getHashes();
-
-			Pair<ArrayList<Block>, Integer> aux = miner.getBlockchain().findDiff(hashes);
+			Pair<ArrayList<Block>, Integer> aux = null;
+			synchronized (NodeMiner.lockBlockchain) {
+				aux = miner.getBlockchain().findDiff(hashes);
+			}
 			ArrayList<Block> blocks = aux.getKey();
 			Integer index = aux.getValue();
 			if (blocks == null || index == null) {
@@ -224,7 +229,9 @@ public class ClientServerThread extends Thread {
 
 			LOG.info("Message sending blocks was received");
 			MsgBlocks msg = (MsgBlocks) message;
-			miner.getBlockchain().handleBlocks(msg.getBlocks(), msg.getIndex(), miner);
+			synchronized (NodeMiner.lockBlockchain) { // we operate on the chain we NEED the lock
+				miner.getBlockchain().handleBlocks(msg.getBlocks(), msg.getIndex(), miner);
+			}
 
 		} else if (message instanceof MsgIsAlive) { // just for check
 
@@ -238,17 +245,9 @@ public class ClientServerThread extends Thread {
 	@Override
 	public void run() {
 		try {
-			// Open an input Stream to read the object arrived on the incoming socket
 			ObjectInputStream objectInputStream = new ObjectInputStream(this.socket.getInputStream());
-
-			// Cast the object to its expected format! From ObjectInputStream anything is read as the abstract Object type
 			Message msg = (Message) objectInputStream.readObject();
-
-			// Handle the incoming message
-			//LOG.debug("Message received from node {}:{}", socket.getInetAddress().getHostAddress(), socket.getPort());
 			handleMessage(msg);
-
-			// Close the socket since we got its input
 			this.socket.close();
 		} catch (IOException e) {
 			e.printStackTrace();

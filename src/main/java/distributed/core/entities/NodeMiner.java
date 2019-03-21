@@ -12,6 +12,7 @@ import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.Security;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -43,10 +44,9 @@ public class NodeMiner {
 	private String address;
 	private int port;
 	private Wallet wallet;
-	// TODO (optional) add collection map<publicKey, nodeId> gia to ui
-	private int numOfNodes;
+	//private int numOfNodes;
 	public AtomicBoolean alone;
-	//private ConcurrentHashMap<PublicKey, Pair<String, Integer>> nodes;
+	public static HashMap<PublicKey, String> nodesPid;
 	private ConcurrentHashMap<String, Triple<PublicKey, String, Integer>> nodesId;
 	private ConcurrentHashMap<String, Integer> blockchainSizes;
 	private Blockchain blockchain;
@@ -56,6 +56,14 @@ public class NodeMiner {
 	public static String lockBlockchain = "blocked";
 	public static String lockTxn = "mining";
 	private static NodeMiner instance;
+	public static int transReceived = 0; // TODO προσθήκη μετρικών
+	public static int transSent = 0;
+	public static int blocksReceived = 0;
+	public static int blocksSent = 0;
+	public static int chainSizeRequestReceived = 0;
+	public static int chainSizeRequestSend = 0;
+	public static int chainRequestReceived = 0;
+	public static int chainRequestSend = 0;
 
 	private NodeMiner() {
 		this.wallet = Wallet.getInstance();
@@ -63,6 +71,7 @@ public class NodeMiner {
 		alone = new AtomicBoolean(true);
 		//this.nodes = new ConcurrentHashMap<PublicKey, Pair<String, Integer>>();
 		this.nodesId = new ConcurrentHashMap<String, Triple<PublicKey, String, Integer>>();
+		this.nodesPid = new HashMap<PublicKey, String>();
 		this.blockchainSizes = new ConcurrentHashMap<String, Integer>();
 		try {
 			this.address = Inet4Address.getLocalHost().getHostAddress();
@@ -75,6 +84,18 @@ public class NodeMiner {
 
 	public static NodeMiner getInstance() {
 		return instance;
+	}
+
+	public String getIdFromKey(PublicKey key) {
+		return nodesPid.get(key);
+	}
+
+	public HashMap<PublicKey, String> getNodesPid() {
+		return nodesPid;
+	}
+
+	public void setNodesPid(HashMap<PublicKey, String> nodesPid) {
+		this.nodesPid = nodesPid;
 	}
 
 	public ConcurrentHashMap<String, TransactionOutput> getUTXOs() {
@@ -164,9 +185,8 @@ public class NodeMiner {
 			boolean isTxnValid = this.getCurrentBlock().addTransaction(t, this.getBlockchain()); // validation happens here
 			if (isTxnValid) {
 				this.broadcastMsg(msgTrans);
-				//if (this.getCurrentBlock().proceedWithMine()) {
+				NodeMiner.transSent++;
 				this.mineBlock();
-				//}
 			} else {
 				LOG.warn("Transactions wasn't valid. Discarding it...");
 			}
@@ -190,21 +210,22 @@ public class NodeMiner {
 
 		LOG.debug("Continue validation of received block");
 
-		Set<String> aux = currentBlock.getTransactions().stream().map(Transaction::getTransactionId)
-				.collect(Collectors.toSet());
+		synchronized (lockTxn) {
 
-		ArrayList<Transaction> rollBack = new ArrayList<Transaction>();
+			Set<String> aux = currentBlock.getTransactions().stream().map(Transaction::getTransactionId)
+					.collect(Collectors.toSet());
 
-		if (set != null) {
-			aux.addAll(set);
-		}
+			ArrayList<Transaction> rollBack = new ArrayList<Transaction>();
 
-		for (Transaction t : received.getTransactions()) {
-			if (t == null) {
-				LOG.warn("Transaction was null, continue"); // it doesn't cause trouble
-				continue;
+			if (set != null) {
+				aux.addAll(set);
 			}
-			synchronized (lockTxn) {
+
+			for (Transaction t : received.getTransactions()) {
+				if (t == null) {
+					LOG.warn("Transaction was null, continue"); // it doesn't cause trouble
+					continue;
+				}
 				String id = t.getTransactionId();
 				if (aux.contains(id)) { // ελέγχοντας το hash σημαίνει ότι πρόκειται για την ίδια συναλλαγή καθώς δε μπροεί να βρεθεί
 					LOG.debug("Txn is present at current block");  // ίδιο hash από άλλα δεδομένα
@@ -216,15 +237,15 @@ public class NodeMiner {
 				// TODO check if inputs of TXN are used in another TXN of the current block and accepted it, reject the current
 				// by this way we prevent double spending
 				if (!t.validateTransaction(getUTXOs())) { // validate txn
-					// TODO blacklist the node that sent it
+					// TODO (ignore) blacklist the node that sent it
 					return false;
 				}
 			}
-		}
 
-		if (exception != null) { // throw it only if other checks succeeded, so we don't send requests for invalid blocks
-			rollBack.forEach(transaction -> currentBlock.malAdd(transaction)); // το current block δε μπορεί να γίνει mine στο μεταξύ γιατί έχουμε το κλείδωμα για το blockchain
-			throw exception;
+			if (exception != null) { // throw it only if other checks succeeded, so we don't send requests for invalid blocks
+				rollBack.forEach(transaction -> currentBlock.malAdd(transaction)); // το current block δε μπορεί να γίνει mine στο μεταξύ γιατί έχουμε το κλείδωμα για το blockchain
+				throw exception;
+			}
 		}
 		return true;
 	}
@@ -249,13 +270,13 @@ public class NodeMiner {
 		this.blockchain = blockchain;
 	}
 
-	public int getNumOfNodes() {
-		return numOfNodes;
-	}
-
-	public void setNumOfNodes(int numOfNodes) {
-		this.numOfNodes = numOfNodes;
-	}
+	/*	public int getNumOfNodes() {
+			return numOfNodes;
+		}
+	
+		public void setNumOfNodes(int numOfNodes) {
+			this.numOfNodes = numOfNodes;
+		}*/
 
 	public String getAddress() {
 		return address;
@@ -278,7 +299,9 @@ public class NodeMiner {
 	}
 
 	public void addNode(Triple<PublicKey, String, Integer> value) {
-		nodesId.put("id" + nodesId.size(), value);
+		String id = "id" + nodesId.size();
+		nodesId.put(id, value);
+		nodesPid.put(value.getLeft(), id);
 	}
 
 	/* public Pair<String, Integer> getNode(PublicKey key) { return nodes.get(key);
@@ -299,18 +322,19 @@ public class NodeMiner {
 		ArrayList<Transaction> aux = null;
 		synchronized (lockBlockchain) {
 			// η proceed with mine να βρίσκεται εδώ μέσα
-			if (!currentBlock.proceedWithMine()) {
+			if (currentBlock.proceedWithMine() == false
+					&& (blockchain.getSize() >= Constants.NUM_OF_NODES || currentBlock.getTransactions().size() == 0)) {
 				return;
 			}
 			currentBlock.setPreviousHash(blockchain.getLastHash());
-			currentBlock.setIndex(blockchain.getSize()); // από τι στιγμή αυτή το block είτε θα γίνει mine είτε θα απορριφθεί 
+			currentBlock.setIndex(blockchain.getSize()); // από τη στιγμή αυτή το block είτε θα γίνει mine είτε θα απορριφθεί 
 			currentBlock.setMerkleRoot();
 			alone.compareAndSet(false, true);
 		}
 		// σε αυτό το διάστημα αν αφαιρεθούν trans θα γίνει και false η μεταβλητή και το block θα απορριφθεί
 
 		//String target = new String(new char[Constants.DIFFICULTY]).replace('\0', '0'); // Create a string with difficulty * "0"
-		// TODO move it elsewhere it's always the same
+
 		LOG.info("Check that hash of block starts with {} zeros", Constants.DIFFICULTY);
 		while (!currentBlock.getCurrentHash().substring(0, Constants.DIFFICULTY).equals(Constants.TARGET)
 				&& alone.get()) {
@@ -352,11 +376,13 @@ public class NodeMiner {
 			LOG.info("I am the bootstrap node");
 			setId("id0");
 			nodesId.put(id, Triple.of(wallet.getPublicKey(), address, port));
-			Transaction genesisTrans = new Transaction(null, this.wallet.getPublicKey(), 100 * numOfNodes, null);
+			nodesPid.put(wallet.getPublicKey(), id);
+			Transaction genesisTrans = new Transaction(null, this.wallet.getPublicKey(), 100 * Constants.NUM_OF_NODES,
+					null);
 			genesisTrans.setTransactionId("0");
 			// genesisTrans.generateSignature(wallet.getPrivateKey());
-			TransactionOutput genesisOutputTrans = new TransactionOutput(this.wallet.getPublicKey(), 100 * numOfNodes,
-					"0");
+			TransactionOutput genesisOutputTrans = new TransactionOutput(this.wallet.getPublicKey(),
+					100 * Constants.NUM_OF_NODES, "0");
 			genesisTrans.addToOutputs(genesisOutputTrans);
 			blockchain.getUTXOs().put(genesisOutputTrans.getId(), genesisOutputTrans);
 
@@ -421,18 +447,18 @@ public class NodeMiner {
 					if (line.equalsIgnoreCase("exit")) {
 						server.setRunning(false);
 						break;
-					} else if (line.equalsIgnoreCase("read")) {
+					} else if (line.equalsIgnoreCase("r")) {
 						//String filename = node.getClass().getResource("transactions" + node.getId().substring(2) + ".txt").getPath();
 						String path = "C:\\Users\\nikmand\\OneDrive\\DSML\\Κατανεμημένα\\blockchain\\src\\main\\resources\\";
-						String filename = path + "transactions" + node.getId().substring(2) + ".txt";
-						LOG.info(filename);
+						String filename = path + "trans" + node.getId().substring(2) + ".txt";
+						LOG.info("Start reading from file={}", filename);
 						/*try (BufferedReader bur = new BufferedReader(new FileReader(filename))) {
 							String newLine;
 							while ((newLine = bur.readLine()) != null) {
 								LOG.info(newLine);
 							}
 						}*/
-						long startTime = System.nanoTime();
+						long startTime = System.currentTimeMillis();
 
 						try (Stream<String> stream = Files.lines(Paths.get(filename))) {
 							stream.forEach(ln -> {
@@ -444,9 +470,29 @@ public class NodeMiner {
 							});
 						}
 						LOG.info("Size of blockchain is {}", node.getBlockchain().getSize());
-						// TODO calculate throughput for trans and blocks
-						long endTime = System.nanoTime();
-						long duration = (endTime - startTime);
+						// TODO calculate throughput for trans
+						//and blocks
+						long endTime = System.currentTimeMillis();
+						int totalNumOfTxns = (node.blockchain.getSize() - Constants.NUM_OF_NODES) * Constants.CAPACITY;
+						long durationSec = (endTime - startTime) / 1000;
+						LOG.info("Num of transactions performed was {}", totalNumOfTxns);
+						LOG.info("In a total time of {} seconds", durationSec);
+						LOG.info("Throughput of our system was {} TXNs/second", (double) totalNumOfTxns / durationSec);
+						LOG.info("Trans received={}", NodeMiner.transReceived);
+						LOG.info("Trans sent={}", NodeMiner.transSent);
+
+						try {
+							Thread.sleep(5000);
+						} catch (InterruptedException e) {
+							e.printStackTrace();
+						}
+
+						totalNumOfTxns = (node.blockchain.getSize() - Constants.NUM_OF_NODES) * Constants.CAPACITY;
+						LOG.info("Num of transactions performed was {}", totalNumOfTxns);
+						LOG.info("In a total time of {} seconds", durationSec);
+						LOG.info("Throughput of our system was {} TXNs/second", (double) totalNumOfTxns / durationSec);
+						LOG.info("Trans received={}", NodeMiner.transReceived);
+						LOG.info("Trans sent={}", NodeMiner.transSent);
 					}
 				}
 			} catch (IOException ioe) {
@@ -478,21 +524,28 @@ public class NodeMiner {
 		// δε χρειάζεται δημιουργείται εξ ορισμού στην ip της εφαρμογής
 		// το πορτ θα μπορούσε να τίθεται αυτόματα διαλέγοντας κάποια πόρτα
 		if (args.length < 1) {
+			LOG.info("Provide arguments: $port $numOfNodes $capacity $difficulty");
 			LOG.warn("A port number must be provided in order for the node to start. Exiting...");
 			return null;
 		}
 		int myPort = Integer.parseInt(args[0]);
-		int numOfNodes = 5;
+
 		if (args.length < 2) {
-			LOG.warn("Number of nodes wasn't specified, procedding with defaults which is {}", numOfNodes);
+			LOG.warn("Number of nodes wasn't specified, procedding with defaults which is {}", Constants.NUM_OF_NODES);
 		} else {
-			numOfNodes = Integer.parseInt(args[1]);
+			Constants.NUM_OF_NODES = Integer.parseInt(args[1]);
 		}
 
+		if (args.length == 4) {
+			Constants.CAPACITY = Integer.parseInt(args[2]);
+			Constants.DIFFICULTY = Integer.parseInt(args[3]);
+		}
+
+		/*		Constants.CAPACITY_ONE = (Constants.NUM_OF_NODES - 1) % Constants.CAPACITY != 0 ? (Constants.NUM_OF_NODES - 1)
+						: Constants.CAPACITY;*/
 		NodeMiner.instance = new NodeMiner(); // ??
 		NodeMiner node = NodeMiner.getInstance();
 		node.setPort(myPort);
-		node.setNumOfNodes(numOfNodes);
 		node.setBlockchain(Blockchain.getInstance());
 		// Define new server
 		node.setServer(new ServerThread(myPort, node));

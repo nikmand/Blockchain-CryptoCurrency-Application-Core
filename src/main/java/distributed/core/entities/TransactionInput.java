@@ -15,4 +15,14 @@ public class TransactionInput implements Serializable {
 		return transactionOutputId;
 	}
 
+	@Override
+	public String toString() {
+		String aux = "{\n" + "txnId: " + transactionOutputId;
+		if (UTXO != null) {
+			aux += "\ntxnOutput" + UTXO.toString();
+		}
+		aux += "}";
+		return aux;
+	}
+
 }

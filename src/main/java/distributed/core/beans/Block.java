@@ -131,14 +131,6 @@ public class Block implements Serializable {
 		return calculatedhash;
 	}
 
-	private String prepareContent() { // to be deleted 
-		String aux = previousHash + Long.toString(timestamp);
-		for (Transaction t : transactions) {
-			aux += t.getTransactionId();
-		}
-		return aux;
-	}
-
 	/**
 	 * Addition of any txn in block without
 	 * validation
@@ -173,8 +165,7 @@ public class Block implements Serializable {
 			}
 		}
 		transactions.add(transaction);
-		LOG.info("Transaction added to block");
-		// TODO check if block is full and if yes mine it, now we do this manuallly
+		LOG.info("Transaction with id={} added to block", transaction.getTransactionId());
 		return true;
 	}
 
@@ -198,7 +189,14 @@ public class Block implements Serializable {
 
 	@Override
 	public String toString() {
-		return new GsonBuilder().setPrettyPrinting().create().toJson(this);
+		//return new GsonBuilder().setPrettyPrinting().create().toJson(this);
+		String aux = "{\n" + "index: " + index + "\npreviousHash: " + previousHash + "\ncurrentHash: " + currentHash
+				+ "\nnonce: " + nonce + "\nTransactions: [\n";
+		for (Transaction t : transactions) {
+			aux += t.toString();
+		}
+		aux += "\n]";
+		return aux;
 	}
 
 }

@@ -57,4 +57,10 @@ public class TransactionOutput implements Serializable {
 		return (publicKey.equals(reciepient));
 	}
 
+	@Override
+	public String toString() {
+		return "{\n" + "id: " + id + "\nreceiver: " + NodeMiner.nodesPid.get(reciepient) + "\namount: " + value
+				+ "\nparentId: " + parentTransactionId + "}";
+	}
+
 }

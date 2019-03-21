@@ -145,17 +145,6 @@ public class Transaction implements Serializable {
 		return true;
 	}
 
-	private boolean validateBlockTran() { // to be removed
-		LOG.info("Validation of txn in a block start ");
-
-		if (verifiySignature() == false) {
-			LOG.warn("Transaction Signature failed to verify");
-			return false;
-		}
-		// TODO validate txns but in a modified way
-		return true;
-	}
-
 	// returns sum of inputs(UTXOs) values
 	public float getInputsValue() {
 		float total = 0;
@@ -178,9 +167,34 @@ public class Transaction implements Serializable {
 		return total;
 	}
 
+	/*	@Override
+		public String toString() {
+			return new GsonBuilder().setPrettyPrinting().create().toJson(this);
+		}*/
+
 	@Override
 	public String toString() {
-		return new GsonBuilder().setPrettyPrinting().create().toJson(this);
+		String aux = "{\n" + "id: " + transactionId + "\nsender: " + NodeMiner.nodesPid.get(senderAddress)
+				+ "\nreceiver: " + NodeMiner.nodesPid.get(receiverAddress) + "\namount: " + amount + "\nTxnInputs [\n";
+		if (inputs != null) {
+			for (TransactionInput t : inputs) {
+				if (t == null) {
+					continue;
+				}
+				aux += t.toString();
+			}
+		}
+		aux += "]" + "\nTxnOutputs: [\n";
+		if (outputs != null) {
+			for (TransactionOutput t : outputs) {
+				if (t == null) {
+					continue;
+				}
+				aux += t.toString();
+			}
+		}
+		aux += "]" + "}";
+		return aux;
 	}
 
 }

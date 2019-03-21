@@ -91,8 +91,14 @@ public class Blockchain implements Serializable {
 	}
 
 	public void printBlockChain() {
-		String blockchainJson = new GsonBuilder().setPrettyPrinting().create().toJson(blockchain);
-		LOG.info(blockchainJson);
+		/*		String blockchainJson = new GsonBuilder().setPrettyPrinting().create().toJson(blockchain);
+				LOG.info(blockchainJson);*/
+		String aux = "Blockchain: [\n";
+		for (Block b : blockchain) {
+			aux += b.toString();
+		}
+		aux += "\n]";
+		LOG.info(aux);
 	}
 
 	public Pair<ArrayList<Block>, Integer> findDiff(List<String> otherHashes) {
@@ -101,8 +107,8 @@ public class Blockchain implements Serializable {
 		boolean flag = false;
 		for (j = 0; j < otherHashes.size(); j++) {
 			String otherHash = otherHashes.get(j);
-			if (i > otherHashes.size()) {
-				LOG.warn("Comparison ended without funding a diffenece");
+			if (i == blockchain.size()) {
+				LOG.warn("Comparison ended since otherhashes is longer!!");
 				return null;
 			}
 
@@ -114,7 +120,7 @@ public class Blockchain implements Serializable {
 				break;
 			}
 		}
-		if (flag) {
+		if (flag || blockchain.size() > otherHashes.size()) { // αν είναι ίδια όλα πιθανώς λείπουν κάποια 
 			blocks = new ArrayList<Block>(blockchain.subList(i, blockchain.size()));
 		} else {
 			LOG.warn("No difference found");
@@ -131,70 +137,22 @@ public class Blockchain implements Serializable {
 		Set<String> set = new HashSet<String>();
 		blockchain = a;
 		b.forEach(block -> block.getTransactions().forEach(t -> set.add(t.getTransactionId())));
+		// TODO όσες εγγραφές του hashset επιβιώσουν θα πρέπει να μπουν στο επόμενο block μαζί με όσες
+		// είναι εκείνη τη στιγμή στο current block. Όσες δε χωράνε θα πρέπει να περιμένουν, ή να δημιουργηθεί ένα μεγαλύτερο μπλοκ
 
-		otherChain.forEach(block -> {
+		for (Block block : otherChain) {
 			boolean wasValid = miner.validateReceivedBlock(block, getLastHash(), set);
 			if (wasValid) {
 				miner.alone.compareAndSet(true, false);
 				miner.getBlockchain().addToChain(block);
 				LOG.info("Block that was received added to chain");
 			} else {
-				LOG.warn("Invalid block received, block was {}", block);
+				LOG.warn("Invalid block detected during handleBlocks. Aborting Consensus procedure..., block was {}",
+						block); // ίσως να μη μας έχει έρθει το txn που περιέχεται στο μεγαλύτερο block
+				break; // δεν έχει νόημα να συνεχίσουμε καθώς σίγουρα το επόμενο θα αποριφθεί λόγω previousHash
 			}
-		});
+		}
 	}
-
-	/*	private void truch() {
-			Iterator<Block> it_a = blockchain.iterator();
-			Iterator<Block> it_b = otherChain.iterator();
-			Block remaining_a = null;
-			Block remaining_b = null;
-			boolean flag = false;
-			while (it_a.hasNext() && it_b.hasNext()) { // TODO η εύρεση της διαφοράς να συμβαίνει στη μεριά του αποστολέα
-				remaining_a = it_a.next();
-				remaining_b = it_a.next();
-				if (remaining_a.equals(remaining_b)) {
-					continue;
-				}
-				flag = true;
-				break;
-			}
-			// τα txn από τα παλια πααραπανίσια μπλοκ να γίνουν hashset
-			// ta txn από τα καινουρια μπλοκ να γίνουν validate όπως received block με το παραπάνω hashset
-			if (flag) {
-				Set<String> set = new HashSet<String>();
-				remaining_a.getTransactions().forEach(t -> set.add(t.getTransactionId()));
-				it_a.remove();
-				it_a.forEachRemaining(block -> {
-					block.getTransactions().forEach(t -> set.add(t.getTransactionId()));
-					it_a.remove();
-				});
-	
-				// TODO όσες εγγραφές του hashset επιβιώσουν θα πρέπει να μπουν στο επόμενο block μαζί με όσες
-				// είναι εκείνη τη στιγμή στο current block. Όσες δε χωράνε θα πρέπει να περιμένουν.
-				boolean wasAccepted = miner.validateReceivedBlock(remaining_b, getLastHash(), set);
-				if (wasAccepted) {
-					miner.alone.compareAndSet(true, false);
-					miner.getBlockchain().addToChain(remaining_b);
-					LOG.info("Block that was received added to chain");
-				} else {
-					LOG.warn("Invalid block received, block was {}", remaining_b);
-				}
-	
-				it_b.forEachRemaining(block -> {
-					boolean wasValid = miner.validateReceivedBlock(block, getLastHash(), set);
-					if (wasValid) {
-						miner.alone.compareAndSet(true, false);
-						miner.getBlockchain().addToChain(block);
-						LOG.info("Block that was received added to chain");
-					} else {
-						LOG.warn("Invalid block received, block was {}", block);
-					}
-				});
-			} else {
-				LOG.warn("Chains are not different!!");
-			}
-		}*/
 
 	/**
 	 * Method checking if the list of blocks contained in this object is creates

@@ -65,16 +65,6 @@ public class ServerThread extends Thread {
 		this.isRunning = isRunning;
 	}
 
-	/**
-	 * Handle an incoming message
-	 *
-	 * @param Message
-	 *            msg
-	 */
-	private void handleMessage(Message msg) {
-
-	}
-
 	@Override
 	public void run() {
 		while (isRunning()) {
