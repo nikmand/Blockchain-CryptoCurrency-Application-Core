@@ -205,10 +205,10 @@ public class ClientServerThread extends Thread {
 			}
 
 		} else if (message instanceof MsgChainRequest) {
-			LOG.info("Message requesting blockchain received");
 
 			MsgChainRequest msg = (MsgChainRequest) message;
 			String peerId = msg.getId();
+			LOG.info("Message requesting blockchain received from node with id={}", peerId);
 			List<String> hashes = msg.getHashes();
 			Pair<ArrayList<Block>, Integer> aux = null;
 			synchronized (NodeMiner.lockBlockchain) {
@@ -220,8 +220,9 @@ public class ClientServerThread extends Thread {
 				LOG.warn("Unable to find difference in blockchain. Aborting...");
 				return;
 			}
-			MsgBlocks msgBlocks = new MsgBlocks(blocks, index);
+			LOG.info("Sending blocks to node with id={}", peerId);
 
+			MsgBlocks msgBlocks = new MsgBlocks(blocks, index);
 			Triple<PublicKey, String, Integer> value = miner.getNode(peerId);
 			(new ClientThread(value.getMiddle(), value.getRight(), msgBlocks)).start();
 

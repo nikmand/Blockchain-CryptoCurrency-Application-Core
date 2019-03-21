@@ -96,6 +96,7 @@ public class Blockchain implements Serializable {
 		String aux = "Blockchain: [\n";
 		for (Block b : blockchain) {
 			aux += b.toString();
+			aux += "\n";
 		}
 		aux += "\n]";
 		LOG.info(aux);
@@ -137,8 +138,9 @@ public class Blockchain implements Serializable {
 		Set<String> set = new HashSet<String>();
 		blockchain = a;
 		b.forEach(block -> block.getTransactions().forEach(t -> set.add(t.getTransactionId())));
-		// TODO όσες εγγραφές του hashset επιβιώσουν θα πρέπει να μπουν στο επόμενο block μαζί με όσες
+		// TODO (critical) όσες εγγραφές του hashset επιβιώσουν θα πρέπει να μπουν στο επόμενο block μαζί με όσες
 		// είναι εκείνη τη στιγμή στο current block. Όσες δε χωράνε θα πρέπει να περιμένουν, ή να δημιουργηθεί ένα μεγαλύτερο μπλοκ
+		// ή να γίνουν revertana
 
 		for (Block block : otherChain) {
 			boolean wasValid = miner.validateReceivedBlock(block, getLastHash(), set);

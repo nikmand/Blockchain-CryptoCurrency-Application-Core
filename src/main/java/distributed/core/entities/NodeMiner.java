@@ -205,7 +205,8 @@ public class NodeMiner {
 				return false;
 			}
 		} catch (InvalidHashException e) { // catch exception
-			exception = e;
+			//exception = e; // TODO (optional) avoid starting consensus for cases that are on the same chain level
+			throw e;		 // we have to be extremely careful to rollback all the collections if the only problem is the hash
 		}
 
 		LOG.debug("Continue validation of received block");
@@ -230,22 +231,24 @@ public class NodeMiner {
 				if (aux.contains(id)) { // ελέγχοντας το hash σημαίνει ότι πρόκειται για την ίδια συναλλαγή καθώς δε μπροεί να βρεθεί
 					LOG.debug("Txn is present at current block");  // ίδιο hash από άλλα δεδομένα
 					currentBlock.removeTxn(id);
-					aux.remove(id); // todo remove from the initial set also
-					rollBack.add(t);
+					aux.remove(id); // TODO remove from the initial set also
+					//rollBack.add(t);
 					continue; // meaning it has been validated
 				}
-				// TODO check if inputs of TXN are used in another TXN of the current block and accepted it, reject the current
+				// TODO (perfection) check if inputs of TXN are used in another TXN of the current block and accepted it, reject the current
 				// by this way we prevent double spending
+				// TODO (minor) txns in block are already validate so we will put again txnOutputs but any other modification (eg of globl UTXOS is needed!)
 				if (!t.validateTransaction(getUTXOs())) { // validate txn
 					// TODO (ignore) blacklist the node that sent it
 					return false;
 				}
 			}
 
-			if (exception != null) { // throw it only if other checks succeeded, so we don't send requests for invalid blocks
-				rollBack.forEach(transaction -> currentBlock.malAdd(transaction)); // το current block δε μπορεί να γίνει mine στο μεταξύ γιατί έχουμε το κλείδωμα για το blockchain
-				throw exception;
-			}
+			/*			if (exception != null) { // throw it only if other checks succeeded, so we don't send requests for invalid blocks
+							rollBack.forEach(transaction -> currentBlock.malAdd(transaction)); // το current block δε μπορεί να γίνει mine στο μεταξύ γιατί έχουμε το κλείδωμα για το blockchain
+							LOG.debug("Current block after malad is {}", currentBlock);
+							throw exception;
+						}*/
 		}
 		return true;
 	}
@@ -470,8 +473,8 @@ public class NodeMiner {
 							});
 						}
 						LOG.info("Size of blockchain is {}", node.getBlockchain().getSize());
-						// TODO calculate throughput for trans
-						//and blocks
+						// calculate throughput for trans
+						//and mean mining time for blocks
 						long endTime = System.currentTimeMillis();
 						int totalNumOfTxns = (node.blockchain.getSize() - Constants.NUM_OF_NODES) * Constants.CAPACITY;
 						long durationSec = (endTime - startTime) / 1000;
@@ -483,6 +486,19 @@ public class NodeMiner {
 
 						try {
 							Thread.sleep(5000);
+						} catch (InterruptedException e) {
+							e.printStackTrace();
+						}
+
+						totalNumOfTxns = (node.blockchain.getSize() - Constants.NUM_OF_NODES) * Constants.CAPACITY;
+						LOG.info("Num of transactions performed was {}", totalNumOfTxns);
+						LOG.info("In a total time of {} seconds", durationSec);
+						LOG.info("Throughput of our system was {} TXNs/second", (double) totalNumOfTxns / durationSec);
+						LOG.info("Trans received={}", NodeMiner.transReceived);
+						LOG.info("Trans sent={}", NodeMiner.transSent);
+
+						try {
+							Thread.sleep(25000);
 						} catch (InterruptedException e) {
 							e.printStackTrace();
 						}

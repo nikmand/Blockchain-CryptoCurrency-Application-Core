@@ -106,7 +106,7 @@ public class Transaction implements Serializable {
 			LOG.debug("Size of unspent trans = {}", UTXOs.size());
 			TransactionOutput aux = UTXOs.get(i.transactionOutputId);
 			if (aux == null) {
-				LOG.warn("Output txn of input txn it's not in UTXOs. Aborting txn...");
+				LOG.warn("Output txn of input txn it's not in UTXOs. Aborting txn... Input txn was {}", i);
 				return false;
 			}
 			i.UTXO = aux;  // θέτει το unspend output για τα trans
