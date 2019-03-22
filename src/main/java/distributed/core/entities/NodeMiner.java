@@ -13,6 +13,7 @@ import java.security.PublicKey;
 import java.security.Security;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -46,6 +47,7 @@ public class NodeMiner {
 	private Wallet wallet;
 	//private int numOfNodes;
 	public AtomicBoolean alone;
+	public static Set<String> set; // a collection of validates TXNs that were put aside
 	public static HashMap<PublicKey, String> nodesPid;
 	private ConcurrentHashMap<String, Triple<PublicKey, String, Integer>> nodesId;
 	private ConcurrentHashMap<String, Integer> blockchainSizes;
@@ -72,6 +74,7 @@ public class NodeMiner {
 		//this.nodes = new ConcurrentHashMap<PublicKey, Pair<String, Integer>>();
 		this.nodesId = new ConcurrentHashMap<String, Triple<PublicKey, String, Integer>>();
 		this.nodesPid = new HashMap<PublicKey, String>();
+		set = new HashSet<String>();
 		this.blockchainSizes = new ConcurrentHashMap<String, Integer>();
 		try {
 			this.address = Inet4Address.getLocalHost().getHostAddress();
@@ -235,6 +238,11 @@ public class NodeMiner {
 					//rollBack.add(t);
 					continue; // meaning it has been validated
 				}
+				if (NodeMiner.set.contains(id)) {
+					LOG.info("Txn is present at set collection!");
+					NodeMiner.set.remove(id);
+					continue;
+				}
 				// TODO (perfection) check if inputs of TXN are used in another TXN of the current block and accepted it, reject the current
 				// by this way we prevent double spending
 				// TODO (minor) txns in block are already validate so we will put again txnOutputs but any other modification (eg of globl UTXOS is needed!)
@@ -276,7 +284,7 @@ public class NodeMiner {
 	/*	public int getNumOfNodes() {
 			return numOfNodes;
 		}
-	
+
 		public void setNumOfNodes(int numOfNodes) {
 			this.numOfNodes = numOfNodes;
 		}*/
@@ -453,7 +461,7 @@ public class NodeMiner {
 					} else if (line.equalsIgnoreCase("r")) {
 						//String filename = node.getClass().getResource("transactions" + node.getId().substring(2) + ".txt").getPath();
 						String path = "C:\\Users\\nikmand\\OneDrive\\DSML\\Κατανεμημένα\\blockchain\\src\\main\\resources\\";
-						String filename = path + "trans" + node.getId().substring(2) + ".txt";
+						String filename = path + "transactions" + node.getId().substring(2) + ".txt";
 						LOG.info("Start reading from file={}", filename);
 						/*try (BufferedReader bur = new BufferedReader(new FileReader(filename))) {
 							String newLine;
@@ -496,6 +504,7 @@ public class NodeMiner {
 						LOG.info("Throughput of our system was {} TXNs/second", (double) totalNumOfTxns / durationSec);
 						LOG.info("Trans received={}", NodeMiner.transReceived);
 						LOG.info("Trans sent={}", NodeMiner.transSent);
+						LOG.info("Size of set, which contains leftover TXNs, is {}", set.size());
 
 						try {
 							Thread.sleep(25000);
@@ -509,6 +518,21 @@ public class NodeMiner {
 						LOG.info("Throughput of our system was {} TXNs/second", (double) totalNumOfTxns / durationSec);
 						LOG.info("Trans received={}", NodeMiner.transReceived);
 						LOG.info("Trans sent={}", NodeMiner.transSent);
+						LOG.info("Size of set, which contains leftover TXNs, is {}", set.size());
+
+						try {
+							Thread.sleep(5 * 60 * 1000);
+						} catch (InterruptedException e) {
+							e.printStackTrace();
+						}
+
+						totalNumOfTxns = (node.blockchain.getSize() - Constants.NUM_OF_NODES) * Constants.CAPACITY;
+						LOG.info("Num of transactions performed was {}", totalNumOfTxns);
+						LOG.info("In a total time of {} seconds", durationSec);
+						LOG.info("Throughput of our system was {} TXNs/second", (double) totalNumOfTxns / durationSec);
+						LOG.info("Trans received={}", NodeMiner.transReceived);
+						LOG.info("Trans sent={}", NodeMiner.transSent);
+						LOG.info("Size of set, which contains leftover TXNs, is {}", set.size());
 					}
 				}
 			} catch (IOException ioe) {

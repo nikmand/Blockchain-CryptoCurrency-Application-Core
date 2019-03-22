@@ -135,19 +135,19 @@ public class Blockchain implements Serializable {
 		ArrayList<Block> a = new ArrayList<Block>(blockchain.subList(0, index));
 		ArrayList<Block> b = new ArrayList<Block>(blockchain.subList(index, blockchain.size()));
 
-		Set<String> set = new HashSet<String>();
+		//Set<String> set = new HashSet<String>();
 		blockchain = a;
-		b.forEach(block -> block.getTransactions().forEach(t -> set.add(t.getTransactionId())));
+		b.forEach(block -> block.getTransactions().forEach(t -> NodeMiner.set.add(t.getTransactionId())));
 		// TODO (critical) όσες εγγραφές του hashset επιβιώσουν θα πρέπει να μπουν στο επόμενο block μαζί με όσες
 		// είναι εκείνη τη στιγμή στο current block. Όσες δε χωράνε θα πρέπει να περιμένουν, ή να δημιουργηθεί ένα μεγαλύτερο μπλοκ
 		// ή να γίνουν revertana
 
 		for (Block block : otherChain) {
-			boolean wasValid = miner.validateReceivedBlock(block, getLastHash(), set);
+			boolean wasValid = miner.validateReceivedBlock(block, getLastHash(), null);
 			if (wasValid) {
 				miner.alone.compareAndSet(true, false);
 				miner.getBlockchain().addToChain(block);
-				LOG.info("Block that was received added to chain");
+				LOG.info("Block that was received with consensus added to chain. Block was {}", block);
 			} else {
 				LOG.warn("Invalid block detected during handleBlocks. Aborting Consensus procedure..., block was {}",
 						block); // ίσως να μη μας έχει έρθει το txn που περιέχεται στο μεγαλύτερο block

@@ -130,9 +130,9 @@ public class ClientServerThread extends Thread {
 			MsgTrans msg = (MsgTrans) message;
 			Transaction trans = msg.getTransaction();
 			LOG.info("A transaction was received! {}", trans);
-			NodeMiner.transReceived++;
 			// validate it !
 			synchronized (NodeMiner.lock) { // lock εδώ, ώστε κάθε στιγμή να μπορεί να προστεθεί μόνο μία txn στο μπλοκ
+				NodeMiner.transReceived++;
 				miner.getCurrentBlock().addTransaction(trans, miner.getBlockchain()); // validation happens here
 
 				//if (miner.getCurrentBlock().proceedWithMine()) {

@@ -159,7 +159,8 @@ public class Block implements Serializable {
 		if ((previousHash != "1")) { // if genesis block ignore
 			synchronized (NodeMiner.lockTxn) {
 				if ((transaction.validateTransaction(blockchain.getUTXOs()) != true)) {
-					LOG.warn("Transaction failed to process. Discarded. Txn was {}", transaction);
+					LOG.warn("Transaction failed to process. Discarded. Txn with id={}",
+							transaction.getTransactionId());
 					return false;
 				}
 			}
