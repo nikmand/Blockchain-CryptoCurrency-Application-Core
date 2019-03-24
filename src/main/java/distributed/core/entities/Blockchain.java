@@ -3,6 +3,7 @@ package distributed.core.entities;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -137,23 +138,49 @@ public class Blockchain implements Serializable {
 
 		//Set<String> set = new HashSet<String>();
 		blockchain = a;
-		b.forEach(block -> block.getTransactions().forEach(t -> NodeMiner.set.add(t.getTransactionId())));
-		// TODO (critical) όσες εγγραφές του hashset επιβιώσουν θα πρέπει να μπουν στο επόμενο block μαζί με όσες
+		ArrayList<Transaction> myHack = new ArrayList<Transaction>();
+		miner.getCurrentBlock().getTransactions().forEach(myHack::add);
+		miner.getCurrentBlock().getTransactions().clear();
+		b.forEach(block -> block.getTransactions().forEach(t -> miner.getCurrentBlock().malAdd(t)));
+		myHack.forEach(miner.getCurrentBlock()::malAdd);
+
+		//b.forEach(block -> block.getTransactions().forEach(t -> NodeMiner.set.add(t.getTransactionId())));
+
+		// όσες εγγραφές του hashset επιβιώσουν θα πρέπει να μπουν στο επόμενο block μαζί με όσες
 		// είναι εκείνη τη στιγμή στο current block. Όσες δε χωράνε θα πρέπει να περιμένουν, ή να δημιουργηθεί ένα μεγαλύτερο μπλοκ
-		// ή να γίνουν revertana
+		// ή να γίνουν revert ή απλά να μπουν σε μια άλλη δομή και να γίνεται προσπάθεια επιβεβαίωσης στο μέλλον
+		// TODO (minor) retry mech - πολύ λίγες εμπίπτουν σε αυτή την κατηγορία
+		// TODO (minor) μόνο αν δεν χωράνε στο current να πηγαίνουν σε αυτή τη δομή
 
 		for (Block block : otherChain) {
 			boolean wasValid = miner.validateReceivedBlock(block, getLastHash(), null);
+			// if for any reason there is a previous hash mismatch exception will be thrown
 			if (wasValid) {
 				miner.alone.compareAndSet(true, false);
 				miner.getBlockchain().addToChain(block);
 				LOG.info("Block that was received with consensus added to chain. Block was {}", block);
 			} else {
 				LOG.warn("Invalid block detected during handleBlocks. Aborting Consensus procedure..., block was {}",
-						block); // ίσως να μη μας έχει έρθει το txn που περιέχεται στο μεγαλύτερο block
-				break; // δεν έχει νόημα να συνεχίσουμε καθώς σίγουρα το επόμενο θα αποριφθεί λόγω previousHash
+						block);
+				NodeMiner.consensusRoundsFailed++;
+				// ίσως να μη μας έχει έρθει το txn που περιέχεται στο μεγαλύτερο block
+				return; // δεν έχει νόημα να συνεχίσουμε καθώς σίγουρα το επόμενο θα αποριφθεί λόγω previousHash
 			}
 		}
+		NodeMiner.consensusRoundsSucceed++;
+		/*		ArrayList<Transaction> aux = miner.getCurrentBlock().getTransactions();
+				aux.forEach(t -> {
+					NodeMiner.set.add(t.getTransactionId());
+					t.rollBack(UTXOs);
+				});
+				aux.clear();*/
+		/*		Iterator<Transaction> aux = miner.getCurrentBlock().getTransactions().iterator();
+				while (aux.hasNext()) {
+					Transaction t = aux.next();
+					miner.getCurrentBlock().removeTxn(t.getTransactionId()); // remove txns from current block
+					NodeMiner.set.add(t.getTransactionId());				 // and add them to collection
+				}	*/														 //	in order to avoid putting txns without their inputs first
+		LOG.debug("END handleBlocks");
 	}
 
 	/**

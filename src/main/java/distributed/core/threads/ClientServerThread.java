@@ -25,6 +25,9 @@ import distributed.core.beans.MsgInitialize;
 import distributed.core.beans.MsgIsAlive;
 import distributed.core.beans.MsgNodeId;
 import distributed.core.beans.MsgNodesInfo;
+import distributed.core.beans.MsgRead;
+import distributed.core.beans.MsgRequestStatus;
+import distributed.core.beans.MsgStatus;
 import distributed.core.beans.MsgTrans;
 import distributed.core.entities.Blockchain;
 import distributed.core.entities.NodeMiner;
@@ -153,7 +156,7 @@ public class ClientServerThread extends Thread {
 				try {
 					flag = miner.validateReceivedBlock(block, miner.getBlockchain().getLastHash(), null);
 				} catch (InvalidHashException e) {
-					LOG.warn("Invalid block received, block was {}", block);
+					LOG.warn("Block received didn't have the expected previous hash, block was {}", block);
 					MsgChainSizeRequest msgSize = new MsgChainSizeRequest(miner.getId());
 					LOG.info("Sending requests for blockchain size");
 					miner.setSizeOfNodeChain();
@@ -164,6 +167,7 @@ public class ClientServerThread extends Thread {
 					miner.alone.compareAndSet(true, false);
 					miner.getBlockchain().addToChain(block);
 					LOG.info("Block that was received added to chain");
+					NodeMiner.blocksReceived++;
 				} else {
 					LOG.warn("Invalid block received, block was {}", block);
 				}
@@ -194,6 +198,7 @@ public class ClientServerThread extends Thread {
 						Triple<PublicKey, String, Integer> value = miner.getNode(id);
 						List<String> hashes = miner.getBlockchain().getBlockchain().stream().map(Block::getCurrentHash)
 								.collect(Collectors.toList());
+						NodeMiner.chainRequestSend++;
 						MsgChainRequest chainReq = new MsgChainRequest(miner.getId(), hashes);
 						(new ClientThread(value.getMiddle(), value.getRight(), chainReq)).start(); // send message to node with largest chain
 					} else {
@@ -239,6 +244,37 @@ public class ClientServerThread extends Thread {
 			MsgIsAlive msg = (MsgIsAlive) message;
 			LOG.info("Server says: {}", msg.echo);
 			LOG.info("Ohh yes I am here");
+
+		} else if (message instanceof MsgRequestStatus) {
+
+			synchronized (NodeMiner.lockBlockchain) {
+				if (miner.getBlockchain().getSize() == Constants.NUM_OF_NODES) {
+					LOG.info("We reached initialization phase replying to ");
+					(new ClientThread(Constants.BOOTSTRAPADDRESS, Constants.BOOTSTRAPPORT, new MsgStatus())).start();
+				} else if (miner.getBlockchain().getSize() >= Constants.NUM_OF_NODES) {
+					LOG.warn("Chain bigger than expected");
+				}
+			}
+
+		} else if (message instanceof MsgStatus) {
+			LOG.info("MsgStatus Received");
+
+			if (++miner.nodesInitialized == Constants.NUM_OF_NODES) {
+				LOG.info("All nodes completed initialization phase. Send read command");
+				miner.broadcastMsg(new MsgRead());
+				try {
+					miner.readTrans();
+				} catch (IOException | InterruptedException e) {
+					e.printStackTrace();
+				}
+			}
+
+		} else if (message instanceof MsgRead) {
+			try {
+				miner.readTrans();
+			} catch (IOException | InterruptedException e) {
+				e.printStackTrace();
+			}
 		}
 
 	}

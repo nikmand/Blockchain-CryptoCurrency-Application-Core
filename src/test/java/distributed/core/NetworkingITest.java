@@ -1,17 +1,17 @@
 package distributed.core;
 
-import java.io.ByteArrayInputStream;
-
-import org.apache.log4j.Logger;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import distributed.core.entities.NodeMiner;
+import distributed.core.utilities.Constants;
 
 public class NetworkingITest {
 
-	private static Logger LOG = Logger.getLogger(NetworkingITest.class.getName());
+	private static Logger LOG = LoggerFactory.getLogger(NetworkingITest.class.getName());
 
 	@BeforeClass
 	public static void setUp() {
@@ -20,6 +20,25 @@ public class NetworkingITest {
 	}
 
 	@Test
+	public void quickTest() {
+		for (int i = 0; i < Constants.NUM_OF_NODES; i++) {
+			LOG.info("Starting thread {}", i);
+			int j = i;
+			Thread zero = new Thread() {
+				@Override
+				public void run() {
+					String[] args2 = new String[] { String.valueOf(4050 + j) };
+					try {
+						NodeMiner.main(args2);
+					} catch (Exception e) {
+						e.printStackTrace();
+					}
+				}
+			};
+			zero.start();
+		}
+	}
+
 	public void test() throws Exception {
 		Thread zero = new Thread() {
 			@Override

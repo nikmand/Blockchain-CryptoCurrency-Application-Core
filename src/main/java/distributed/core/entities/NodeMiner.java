@@ -30,6 +30,7 @@ import distributed.core.beans.Block;
 import distributed.core.beans.Message;
 import distributed.core.beans.MsgBlock;
 import distributed.core.beans.MsgInitialize;
+import distributed.core.beans.MsgRequestStatus;
 import distributed.core.beans.MsgTrans;
 import distributed.core.exceptions.InvalidHashException;
 import distributed.core.threads.ClientThread;
@@ -45,7 +46,7 @@ public class NodeMiner {
 	private String address;
 	private int port;
 	private Wallet wallet;
-	//private int numOfNodes;
+	public int nodesInitialized = 1;
 	public AtomicBoolean alone;
 	public static Set<String> set; // a collection of validates TXNs that were put aside
 	public static HashMap<PublicKey, String> nodesPid;
@@ -58,14 +59,22 @@ public class NodeMiner {
 	public static String lockBlockchain = "blocked";
 	public static String lockTxn = "mining";
 	private static NodeMiner instance;
+
+	// for metrics
 	public static int transReceived = 0; // TODO προσθήκη μετρικών
 	public static int transSent = 0;
+	public static int transNotBroadcasted = 0;
+
 	public static int blocksReceived = 0;
 	public static int blocksSent = 0;
+	public static long timeMining = 0;
+
 	public static int chainSizeRequestReceived = 0;
 	public static int chainSizeRequestSend = 0;
 	public static int chainRequestReceived = 0;
 	public static int chainRequestSend = 0;
+	public static int consensusRoundsSucceed = 0;
+	public static int consensusRoundsFailed = 0;
 
 	private NodeMiner() {
 		this.wallet = Wallet.getInstance();
@@ -182,16 +191,18 @@ public class NodeMiner {
 	}
 
 	public void sendTxnMine(Transaction t) {
-		Transaction deepCopy = SerializationUtils.clone(t); // deep Copy the trans so it won't get modified while being broadcasting, why ? can't remember
-		MsgTrans msgTrans = new MsgTrans(deepCopy);
-		synchronized (lock) {
+		Transaction deepCopy = SerializationUtils.clone(t); // deep Copy the trans so it won't get modified while being broadcasting
+		MsgTrans msgTrans = new MsgTrans(deepCopy);			// we added this cause sending an already validated txns resulted in adding two times 
+		synchronized (lock) {								// output transaction, but didn't create any functional issue TODO (minor)   
 			boolean isTxnValid = this.getCurrentBlock().addTransaction(t, this.getBlockchain()); // validation happens here
 			if (isTxnValid) {
 				this.broadcastMsg(msgTrans);
-				NodeMiner.transSent++;
+				LOG.info("Trans that was sent was {}", t);
+				transSent++;
 				this.mineBlock();
 			} else {
 				LOG.warn("Transactions wasn't valid. Discarding it...");
+				transNotBroadcasted++;
 			}
 		}
 	}
@@ -200,16 +211,21 @@ public class NodeMiner {
 		return this.wallet.sendFunds(_recipient, value, blockchain.getUTXOs());
 	}
 
-	public boolean validateReceivedBlock(Block received, String hashOfPreivousBlock, Set<String> set) {
+	public boolean validateReceivedBlock(Block received, String curHashOfPreivousBlock, Set<String> set) {
 
-		InvalidHashException exception = null;
+		//InvalidHashException exception = null;
 		try {
-			if (!received.validateBlock(hashOfPreivousBlock)) {
+			if (!received.validateBlock(curHashOfPreivousBlock)) {
 				return false;
 			}
 		} catch (InvalidHashException e) { // catch exception
-			//exception = e; // TODO (optional) avoid starting consensus for cases that are on the same chain level
-			throw e;		 // we have to be extremely careful to rollback all the collections if the only problem is the hash
+			int indexOfPrevBlock = blockchain.getLastBlock().getIndex();
+			if (received.getIndex() <= indexOfPrevBlock) { // not starting consensus if block is old
+				LOG.warn(
+						"Block received is on the same or previous chain level with the last of us, not starting consensus");
+				return false;
+			}
+			throw e;
 		}
 
 		LOG.debug("Continue validation of received block");
@@ -219,7 +235,7 @@ public class NodeMiner {
 			Set<String> aux = currentBlock.getTransactions().stream().map(Transaction::getTransactionId)
 					.collect(Collectors.toSet());
 
-			ArrayList<Transaction> rollBack = new ArrayList<Transaction>();
+			//ArrayList<Transaction> rollBack = new ArrayList<Transaction>();
 
 			if (set != null) {
 				aux.addAll(set);
@@ -238,11 +254,11 @@ public class NodeMiner {
 					//rollBack.add(t);
 					continue; // meaning it has been validated
 				}
-				if (NodeMiner.set.contains(id)) {
-					LOG.info("Txn is present at set collection!");
-					NodeMiner.set.remove(id);
-					continue;
-				}
+				/*				if (NodeMiner.set.contains(id)) {
+									LOG.info("Txn is present at set collection!");
+									NodeMiner.set.remove(id);
+									continue;
+								}*/
 				// TODO (perfection) check if inputs of TXN are used in another TXN of the current block and accepted it, reject the current
 				// by this way we prevent double spending
 				// TODO (minor) txns in block are already validate so we will put again txnOutputs but any other modification (eg of globl UTXOS is needed!)
@@ -344,17 +360,23 @@ public class NodeMiner {
 		}
 		// σε αυτό το διάστημα αν αφαιρεθούν trans θα γίνει και false η μεταβλητή και το block θα απορριφθεί
 
-		//String target = new String(new char[Constants.DIFFICULTY]).replace('\0', '0'); // Create a string with difficulty * "0"
-
 		LOG.info("Check that hash of block starts with {} zeros", Constants.DIFFICULTY);
+		long startTime = System.currentTimeMillis();
+
 		while (!currentBlock.getCurrentHash().substring(0, Constants.DIFFICULTY).equals(Constants.TARGET)
 				&& alone.get()) {
 			currentBlock.incNonce();
 			currentBlock.setCurrentHash(currentBlock.calculateHash());
 		}
+
+		long stopTime = System.currentTimeMillis();
+		long duration = (stopTime - startTime);
+
 		synchronized (lockBlockchain) {
 			if (alone.get()) {
 				LOG.info("Block Mined with hash value={}", currentBlock.getCurrentHash());
+				timeMining += duration;
+				blocksSent++;
 				// add to block chain set new block as the current
 				//if (currentBlock.validateBlock(blockchain.getLastHash())) { // το κάνουμε validate γτ με τη μεταβλητή alone παραγουμε μη valid
 				LOG.info("Block added to chain");						// απ τη στιγμή που τέθηκε το previousHash μεχρι τι στιγμή που πάμε να μπούμε
@@ -373,8 +395,6 @@ public class NodeMiner {
 		}
 		// if non of the txns was in the block that was received and accepted start mining right away
 		mineBlock();
-
-		//alone = new AtomicBoolean(true); // δεν έχει νόημα αφού θα τεθεί όταν το νέο block πάει να γίνει mine
 	}
 
 	/**
@@ -425,137 +445,6 @@ public class NodeMiner {
 		}
 	}
 
-	public static void main(String[] args) throws Exception {
-
-		NodeMiner node = initializeBackEnd(args);
-
-		try {
-			Thread.sleep(13000);
-		} catch (InterruptedException e) {
-			e.printStackTrace();
-		}
-
-		node.getBlockchain().printBlockChain();
-		LOG.info("Size of blockchain={}", node.getBlockchain().getSize());
-		//node.getServer().getServerSocket().close();
-		//LOG.info("Num of threads still running is {}", Thread.activeCount());
-
-		InputStream is = null;
-		BufferedReader br = null;
-
-		ServerThread server = node.getServer();
-		while (server.isRunning()) { // παρακαλουθούμε την είσοδο που δίνει ο χρήστης
-			try {
-
-				is = System.in;
-				br = new BufferedReader(new InputStreamReader(is));
-
-				String line = null;
-
-				while ((line = br.readLine()) != null) {
-					LOG.debug("Line read was {}", line);
-
-					if (line.equalsIgnoreCase("exit")) {
-						server.setRunning(false);
-						break;
-					} else if (line.equalsIgnoreCase("r")) {
-						//String filename = node.getClass().getResource("transactions" + node.getId().substring(2) + ".txt").getPath();
-						String path = "C:\\Users\\nikmand\\OneDrive\\DSML\\Κατανεμημένα\\blockchain\\src\\main\\resources\\";
-						String filename = path + "transactions" + node.getId().substring(2) + ".txt";
-						LOG.info("Start reading from file={}", filename);
-						/*try (BufferedReader bur = new BufferedReader(new FileReader(filename))) {
-							String newLine;
-							while ((newLine = bur.readLine()) != null) {
-								LOG.info(newLine);
-							}
-						}*/
-						long startTime = System.currentTimeMillis();
-
-						try (Stream<String> stream = Files.lines(Paths.get(filename))) {
-							stream.forEach(ln -> {
-								String arr[] = ln.split(" ");
-								String id = arr[0];
-								float amount = Float.parseFloat(arr[1]);
-								//LOG.info("Trasanction received send {} noobcoins to {}", );
-								node.createAndSend(id, amount); // use only this function as it handles concurency issues
-							});
-						}
-						LOG.info("Size of blockchain is {}", node.getBlockchain().getSize());
-						// calculate throughput for trans
-						//and mean mining time for blocks
-						long endTime = System.currentTimeMillis();
-						int totalNumOfTxns = (node.blockchain.getSize() - Constants.NUM_OF_NODES) * Constants.CAPACITY;
-						long durationSec = (endTime - startTime) / 1000;
-						LOG.info("Num of transactions performed was {}", totalNumOfTxns);
-						LOG.info("In a total time of {} seconds", durationSec);
-						LOG.info("Throughput of our system was {} TXNs/second", (double) totalNumOfTxns / durationSec);
-						LOG.info("Trans received={}", NodeMiner.transReceived);
-						LOG.info("Trans sent={}", NodeMiner.transSent);
-
-						try {
-							Thread.sleep(5000);
-						} catch (InterruptedException e) {
-							e.printStackTrace();
-						}
-
-						totalNumOfTxns = (node.blockchain.getSize() - Constants.NUM_OF_NODES) * Constants.CAPACITY;
-						LOG.info("Num of transactions performed was {}", totalNumOfTxns);
-						LOG.info("In a total time of {} seconds", durationSec);
-						LOG.info("Throughput of our system was {} TXNs/second", (double) totalNumOfTxns / durationSec);
-						LOG.info("Trans received={}", NodeMiner.transReceived);
-						LOG.info("Trans sent={}", NodeMiner.transSent);
-						LOG.info("Size of set, which contains leftover TXNs, is {}", set.size());
-
-						try {
-							Thread.sleep(25000);
-						} catch (InterruptedException e) {
-							e.printStackTrace();
-						}
-
-						totalNumOfTxns = (node.blockchain.getSize() - Constants.NUM_OF_NODES) * Constants.CAPACITY;
-						LOG.info("Num of transactions performed was {}", totalNumOfTxns);
-						LOG.info("In a total time of {} seconds", durationSec);
-						LOG.info("Throughput of our system was {} TXNs/second", (double) totalNumOfTxns / durationSec);
-						LOG.info("Trans received={}", NodeMiner.transReceived);
-						LOG.info("Trans sent={}", NodeMiner.transSent);
-						LOG.info("Size of set, which contains leftover TXNs, is {}", set.size());
-
-						try {
-							Thread.sleep(5 * 60 * 1000);
-						} catch (InterruptedException e) {
-							e.printStackTrace();
-						}
-
-						totalNumOfTxns = (node.blockchain.getSize() - Constants.NUM_OF_NODES) * Constants.CAPACITY;
-						LOG.info("Num of transactions performed was {}", totalNumOfTxns);
-						LOG.info("In a total time of {} seconds", durationSec);
-						LOG.info("Throughput of our system was {} TXNs/second", (double) totalNumOfTxns / durationSec);
-						LOG.info("Trans received={}", NodeMiner.transReceived);
-						LOG.info("Trans sent={}", NodeMiner.transSent);
-						LOG.info("Size of set, which contains leftover TXNs, is {}", set.size());
-					}
-				}
-			} catch (IOException ioe) {
-
-			} finally {
-				// close the streams using close method
-				try {
-					if (br != null) {
-						br.close();
-					}
-				} catch (IOException ioe) {
-					System.out.println("Error while closing stream: " + ioe);
-				}
-				if (!server.isRunning()) {
-					server.getServerSocket().close();
-					break;
-				}
-
-			}
-
-		}
-	}
-
 	public static NodeMiner initializeBackEnd(String args[]) throws IOException {
 		LOG.info("START initializing backend");
 
@@ -579,10 +468,9 @@ public class NodeMiner {
 		if (args.length == 4) {
 			Constants.CAPACITY = Integer.parseInt(args[2]);
 			Constants.DIFFICULTY = Integer.parseInt(args[3]);
+			Constants.FILEPATH = args[4];
 		}
 
-		/*		Constants.CAPACITY_ONE = (Constants.NUM_OF_NODES - 1) % Constants.CAPACITY != 0 ? (Constants.NUM_OF_NODES - 1)
-						: Constants.CAPACITY;*/
 		NodeMiner.instance = new NodeMiner(); // ??
 		NodeMiner node = NodeMiner.getInstance();
 		node.setPort(myPort);
@@ -593,11 +481,7 @@ public class NodeMiner {
 		LOG.info("About to start server...");
 		node.getServer().start(); // εκκινούμε το thread του server όπου μας έρχονται μηνύματα
 
-		// connectToBootstrap(myAddress, myPort);
 		node.initiliazeNetoworkConnections();
-
-		InputStream is = null;
-		BufferedReader br = null;
 
 		//server.getServerSocket().close();
 		/*		try {
@@ -609,4 +493,116 @@ public class NodeMiner {
 
 	}
 
+	public void readTrans() throws IOException, InterruptedException {
+		LOG.debug("Start read from file");
+
+		long startTime = System.currentTimeMillis();
+
+		Constants.FILEPATH += "transactions" + getId().substring(2) + ".txt";
+		try (Stream<String> stream = Files.lines(Paths.get(Constants.FILEPATH))) {
+			stream.forEach(ln -> {
+				String arr[] = ln.split(" ");
+				String id = arr[0];
+				float amount = Float.parseFloat(arr[1]);
+				//LOG.info("Trasanction received send {} noobcoins to {}", );
+				this.createAndSend(id, amount); // use only this function as it handles concurency issues
+			});
+		}
+		LOG.info("Size of blockchain is {}", this.getBlockchain().getSize());
+
+		long endTime = System.currentTimeMillis();
+		long durationSec = (endTime - startTime) / 1000;
+
+		Thread.sleep(5000); // 5 sec
+
+		logMetrics(durationSec);
+
+		Thread.sleep(15000); // 15 sec
+
+		logMetrics(durationSec);
+
+		Thread.sleep(30 * 1000); // 30 sec
+
+		logMetrics(durationSec);
+
+		server.getServerSocket().close();
+		server.join();
+
+	}
+
+	public void logMetrics(long durationSec) {
+
+		//int totalNumOfTxns = (blockchain.getSize() - Constants.NUM_OF_NODES) * Constants.CAPACITY;
+		int totalNumOfTxns = 0;
+		int maxCap = Constants.CAPACITY;
+		int countOversized = 0;
+		for (Block b : blockchain.getBlockchain()) {
+			int aux = b.getTransactions().size();
+			if (aux > maxCap) {
+				maxCap = aux;
+			}
+			if (aux > Constants.CAPACITY) {
+				countOversized++;
+			}
+			totalNumOfTxns += aux;
+		}
+		LOG.info("\n============================ Results - Node {} ============================", getId());
+
+		// metrics for TXNs
+		LOG.info("Num of transactions performed was {}", totalNumOfTxns);
+		LOG.info("In a total time of {} seconds", durationSec);
+		LOG.info("Throughput of our system was {} TXNs/second", (double) totalNumOfTxns / durationSec);
+		LOG.info("Trans received={}", transReceived);
+		LOG.info("Trans sent={}", transSent);
+		LOG.info("Invalid Trans that weren't broadcasted={}", transNotBroadcasted);
+		LOG.info("Size of set, which contains leftover TXNs, is {}", set.size());
+
+		// metrics for Blocks
+		LOG.info("Blocks received and accepted={}", blocksReceived);
+		LOG.info("Blocks mined={}", blocksSent);
+		LOG.info("Mean mining time was {} seconds", (double) timeMining / blocksSent / 1000);
+
+		// metrics for Consensus
+		LOG.info("Requests for blockchain sent: {}", chainRequestSend);
+		LOG.info("Consensus rounds succeeded: {}", consensusRoundsSucceed);
+		LOG.info("Consensus rounds failed: {}", consensusRoundsFailed);
+
+		LOG.info("My balance was: {}", this.getBalance());
+		LOG.info("Oversized blocks: {}", countOversized);
+		LOG.info("Max capacity: {}", maxCap);
+	}
+
+	public static void main(String[] args) throws Exception {
+
+		NodeMiner node = initializeBackEnd(args);
+
+		//Thread.sleep(10000); // wait for initialization
+
+		int sizeSoFar;
+		synchronized (lockBlockchain) {
+			sizeSoFar = node.getBlockchain().getSize();
+		}
+
+		while (sizeSoFar < Constants.NUM_OF_NODES) {
+			Thread.sleep(5000);
+			synchronized (lockBlockchain) {
+				sizeSoFar = node.getBlockchain().getSize();
+			}
+			LOG.info("Size of blockchain={}", sizeSoFar);
+		}
+		if (sizeSoFar > Constants.NUM_OF_NODES) {
+			LOG.warn("Size is bigger than expected. Aborting...");
+			return;
+		}
+		node.getBlockchain().printBlockChain();
+		LOG.info(
+				"\n\n\n========================================= Initialization period ended =========================================\n\n\n");
+
+		if (node.getId().equals("id0")) { // check if others completed initialization phase
+			node.broadcastMsg(new MsgRequestStatus());
+		}
+
+		//node.getServer().getServerSocket().close();
+		//LOG.info("Num of threads still running is {}", Thread.activeCount());
+	}
 }

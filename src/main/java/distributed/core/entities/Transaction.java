@@ -91,6 +91,19 @@ public class Transaction implements Serializable {
 		return StringUtilities.verifyECDSASig(senderAddress, formData(), signature);
 	}
 
+	public void rollBack(ConcurrentHashMap<String, TransactionOutput> UTXOs) {
+		LOG.debug("START RollBack");
+
+		LOG.info("Transaction that we rollback was {}", this);
+		for (TransactionOutput o : outputs) {
+			UTXOs.remove(o.getId());
+		}
+
+		for (TransactionInput i : inputs) {
+			UTXOs.put(i.UTXO.getId(), i.UTXO);
+		}
+	}
+
 	// Returns true if new transaction could be created.
 	// It also checks the validity of a transaction
 	public boolean validateTransaction(ConcurrentHashMap<String, TransactionOutput> UTXOs) {
@@ -123,8 +136,9 @@ public class Transaction implements Serializable {
 		LOG.debug("InputValue ={}", getInputsValue());
 		transactionId = calulateHash();
 		outputs.add(new TransactionOutput(this.receiverAddress, amount, transactionId)); // send value to recipient
-		outputs.add(new TransactionOutput(this.senderAddress, leftOver, transactionId)); // send the left over 'change'
-																						// back to sender
+		if (leftOver > 0) { // if there is not chains do not create an output
+			outputs.add(new TransactionOutput(this.senderAddress, leftOver, transactionId)); // send the left over 'change'
+		}															// back to sender
 
 		// add outputs to Unspent list
 		for (TransactionOutput o : outputs) {
@@ -159,7 +173,7 @@ public class Transaction implements Serializable {
 	}
 
 	// returns sum of outputs:
-	public float getOutputsValue() {
+	private float getOutputsValue() {
 		float total = 0;
 		for (TransactionOutput o : outputs) {
 			total += o.getValue();

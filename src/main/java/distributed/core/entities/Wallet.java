@@ -110,8 +110,9 @@ public class Wallet implements Serializable {
 			ConcurrentHashMap<String, TransactionOutput> allUTXOs) {
 		LOG.info("Starting sendFunds");
 
-		if (getBalance(allUTXOs) < value) {
-			LOG.info("Not enough coins");
+		float balance = getBalance(allUTXOs);
+		if (balance < value) {
+			LOG.info("Not enough coins. Balance={}", balance);
 			return null;
 		}
 
@@ -124,7 +125,7 @@ public class Wallet implements Serializable {
 			TransactionOutput utxo = item.getValue();
 			total += utxo.getValue();
 			inputs.add(new TransactionInput(utxo.getId()));
-			if (total > value) {
+			if (total >= value) {
 				LOG.debug("Input transactions covers the amount to be sent");
 				break; // μόλις συμπληρωθεί το ποσό σταμάτα.
 			}

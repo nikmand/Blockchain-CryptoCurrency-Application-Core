@@ -118,7 +118,7 @@ public class Block implements Serializable {
 			return false;
 		} else {
 			LOG.warn("Block is oversized!!!");
-			return false;
+			return true;
 		}
 
 	}
