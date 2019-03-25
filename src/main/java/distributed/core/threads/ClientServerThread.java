@@ -249,7 +249,7 @@ public class ClientServerThread extends Thread {
 
 			synchronized (NodeMiner.lockBlockchain) {
 				if (miner.getBlockchain().getSize() == Constants.NUM_OF_NODES) {
-					LOG.info("We reached initialization phase replying to ");
+					LOG.info("We reached initialization phase replying to bootstrap");
 					(new ClientThread(Constants.BOOTSTRAPADDRESS, Constants.BOOTSTRAPPORT, new MsgStatus())).start();
 				} else if (miner.getBlockchain().getSize() >= Constants.NUM_OF_NODES) {
 					LOG.warn("Chain bigger than expected");

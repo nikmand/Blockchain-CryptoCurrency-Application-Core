@@ -150,7 +150,6 @@ public class Blockchain implements Serializable {
 		// είναι εκείνη τη στιγμή στο current block. Όσες δε χωράνε θα πρέπει να περιμένουν, ή να δημιουργηθεί ένα μεγαλύτερο μπλοκ
 		// ή να γίνουν revert ή απλά να μπουν σε μια άλλη δομή και να γίνεται προσπάθεια επιβεβαίωσης στο μέλλον
 		// TODO (minor) retry mech - πολύ λίγες εμπίπτουν σε αυτή την κατηγορία
-		// TODO (minor) μόνο αν δεν χωράνε στο current να πηγαίνουν σε αυτή τη δομή
 
 		for (Block block : otherChain) {
 			boolean wasValid = miner.validateReceivedBlock(block, getLastHash(), null);
@@ -163,7 +162,6 @@ public class Blockchain implements Serializable {
 				LOG.warn("Invalid block detected during handleBlocks. Aborting Consensus procedure..., block was {}",
 						block);
 				NodeMiner.consensusRoundsFailed++;
-				// ίσως να μη μας έχει έρθει το txn που περιέχεται στο μεγαλύτερο block
 				return; // δεν έχει νόημα να συνεχίσουμε καθώς σίγουρα το επόμενο θα αποριφθεί λόγω previousHash
 			}
 		}

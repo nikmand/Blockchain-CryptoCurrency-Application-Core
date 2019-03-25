@@ -20,11 +20,6 @@
     </properties>
     
     <dependencies>
-	     <!-- <dependency>
-		      <groupId>log4j</groupId>
-		      <artifactId>log4j</artifactId>
-		      <version>${log4j.version}</version>
-	    </dependency> --> 
         <dependency>
             <groupId>org.json</groupId>
             <artifactId>json</artifactId>
@@ -76,6 +71,44 @@
       </activation>
       <build>
         <plugins>
+        
+              <plugin>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.7.0</version>
+        <configuration>
+          <source>1.8</source>
+          <target>1.8</target>
+        </configuration>
+      </plugin>
+      
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-shade-plugin</artifactId>
+          <version>2.4.3</version>
+          <configuration>
+    <filters>
+        <filter>
+            <artifact>*:*</artifact>
+            <excludes>
+                <exclude>META-INF/*.SF</exclude>
+                <exclude>META-INF/*.DSA</exclude>
+                <exclude>META-INF/*.RSA</exclude>
+            </excludes>
+        </filter>
+    </filters>
+            <createDependencyReducedPom>false</createDependencyReducedPom>
+            <keepDependenciesWithProvidedScope>false</keepDependenciesWithProvidedScope>
+          </configuration>
+          <executions>
+            <execution>
+              <phase>package</phase>
+              <goals>
+                <goal>shade</goal>
+              </goals>
+            </execution>
+          </executions>
+        </plugin>
+        
           <plugin>
             <groupId>org.apache.maven.plugins</groupId>
             <artifactId>maven-surefire-plugin</artifactId>
@@ -86,6 +119,7 @@
               </excludes>
             </configuration>
           </plugin>
+          
         </plugins>
       </build>
     </profile>

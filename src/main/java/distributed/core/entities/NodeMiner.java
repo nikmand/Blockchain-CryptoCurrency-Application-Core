@@ -1,9 +1,6 @@
 package distributed.core.entities;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.net.Inet4Address;
 import java.net.UnknownHostException;
 import java.nio.file.Files;
@@ -23,6 +20,7 @@ import java.util.stream.Stream;
 
 import org.apache.commons.lang3.SerializationUtils;
 import org.apache.commons.lang3.tuple.Triple;
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -82,9 +80,10 @@ public class NodeMiner {
 		alone = new AtomicBoolean(true);
 		//this.nodes = new ConcurrentHashMap<PublicKey, Pair<String, Integer>>();
 		this.nodesId = new ConcurrentHashMap<String, Triple<PublicKey, String, Integer>>();
-		this.nodesPid = new HashMap<PublicKey, String>();
+		nodesPid = new HashMap<PublicKey, String>();
 		set = new HashSet<String>();
 		this.blockchainSizes = new ConcurrentHashMap<String, Integer>();
+		LOG.debug("Try to get my ip address");
 		try {
 			this.address = Inet4Address.getLocalHost().getHostAddress();
 		} catch (UnknownHostException e) {
@@ -300,7 +299,7 @@ public class NodeMiner {
 	/*	public int getNumOfNodes() {
 			return numOfNodes;
 		}
-
+	
 		public void setNumOfNodes(int numOfNodes) {
 			this.numOfNodes = numOfNodes;
 		}*/
@@ -445,10 +444,79 @@ public class NodeMiner {
 		}
 	}
 
+	public void readTrans() throws IOException, InterruptedException {
+		LOG.debug("Start read from file");
+
+		Constants.FILEPATH += Constants.NUM_OF_NODES + "nodes/" + "transactions" + getId().substring(2) + ".txt";
+		long startTime = System.currentTimeMillis();
+
+		try (Stream<String> stream = Files.lines(Paths.get(Constants.FILEPATH))) {
+			stream.forEach(ln -> {
+				String arr[] = ln.split(" ");
+				String id = arr[0];
+				float amount = Float.parseFloat(arr[1]);
+				//LOG.info("Trasanction received send {} noobcoins to {}", );
+				this.createAndSend(id, amount); // use only this function as it handles concurency issues
+			});
+		}
+
+		long endTime = System.currentTimeMillis();
+		LOG.info("Size of blockchain is {}", this.getBlockchain().getSize());
+		long durationSec = (endTime - startTime) / 1000;
+
+		Thread.sleep(3000); // 5 sec
+
+		logMetrics(durationSec);
+
+		Thread.sleep(30000); // 15 sec
+
+		logMetrics(durationSec);
+
+		Thread.sleep(5 * 60 * 1000); // 30 sec
+
+		logMetrics(durationSec);
+
+		server.getServerSocket().close();
+		server.join();
+
+	}
+
+	public void logMetrics(long durationSec) {
+
+		//int totalNumOfTxns = (blockchain.getSize() - Constants.NUM_OF_NODES) * Constants.CAPACITY;
+		int totalNumOfTxns = 0;
+		for (Block b : blockchain.getBlockchain()) {
+			int aux = b.getTransactions().size();
+			totalNumOfTxns += aux;
+		}
+		LOG.info("\n============================ Results - Node {} ============================", getId());
+
+		// metrics for TXNs
+		LOG.info("Num of transactions performed was {}", totalNumOfTxns);
+		LOG.info("In a total time of {} seconds", durationSec);
+		LOG.info("Throughput of our system was {} TXNs/second", (double) totalNumOfTxns / durationSec);
+		LOG.info("Trans received={}", transReceived);
+		LOG.info("Trans sent={}", transSent);
+		LOG.info("Invalid Trans that weren't broadcasted={}", transNotBroadcasted);
+		LOG.info("Size of set, which contains leftover TXNs, is {}", set.size());
+
+		// metrics for Blocks
+		LOG.info("Blocks received and accepted={}", blocksReceived);
+		LOG.info("Blocks mined={}", blocksSent);
+		LOG.info("Mean mining time was {} seconds", (double) timeMining / blocksSent / 1000);
+
+		// metrics for Consensus
+		LOG.info("Requests for blockchain sent: {}", chainRequestSend);
+		LOG.info("Consensus rounds succeeded: {}", consensusRoundsSucceed);
+		LOG.info("Consensus rounds failed: {}", consensusRoundsFailed);
+
+		LOG.info("My balance was: {}", this.getBalance());
+	}
+
 	public static NodeMiner initializeBackEnd(String args[]) throws IOException {
 		LOG.info("START initializing backend");
 
-		Security.addProvider(new org.bouncycastle.jce.provider.BouncyCastleProvider());
+		Security.addProvider(new BouncyCastleProvider());
 		// String myAddress = Inet4Address.getLocalHost().getHostAddress(); // args[0];
 		// δε χρειάζεται δημιουργείται εξ ορισμού στην ip της εφαρμογής
 		// το πορτ θα μπορούσε να τίθεται αυτόματα διαλέγοντας κάποια πόρτα
@@ -464,8 +532,7 @@ public class NodeMiner {
 		} else {
 			Constants.NUM_OF_NODES = Integer.parseInt(args[1]);
 		}
-
-		if (args.length == 4) {
+		if (args.length == 5) {
 			Constants.CAPACITY = Integer.parseInt(args[2]);
 			Constants.DIFFICULTY = Integer.parseInt(args[3]);
 			Constants.FILEPATH = args[4];
@@ -493,90 +560,13 @@ public class NodeMiner {
 
 	}
 
-	public void readTrans() throws IOException, InterruptedException {
-		LOG.debug("Start read from file");
-
-		long startTime = System.currentTimeMillis();
-
-		Constants.FILEPATH += "transactions" + getId().substring(2) + ".txt";
-		try (Stream<String> stream = Files.lines(Paths.get(Constants.FILEPATH))) {
-			stream.forEach(ln -> {
-				String arr[] = ln.split(" ");
-				String id = arr[0];
-				float amount = Float.parseFloat(arr[1]);
-				//LOG.info("Trasanction received send {} noobcoins to {}", );
-				this.createAndSend(id, amount); // use only this function as it handles concurency issues
-			});
-		}
-		LOG.info("Size of blockchain is {}", this.getBlockchain().getSize());
-
-		long endTime = System.currentTimeMillis();
-		long durationSec = (endTime - startTime) / 1000;
-
-		Thread.sleep(5000); // 5 sec
-
-		logMetrics(durationSec);
-
-		Thread.sleep(15000); // 15 sec
-
-		logMetrics(durationSec);
-
-		Thread.sleep(30 * 1000); // 30 sec
-
-		logMetrics(durationSec);
-
-		server.getServerSocket().close();
-		server.join();
-
-	}
-
-	public void logMetrics(long durationSec) {
-
-		//int totalNumOfTxns = (blockchain.getSize() - Constants.NUM_OF_NODES) * Constants.CAPACITY;
-		int totalNumOfTxns = 0;
-		int maxCap = Constants.CAPACITY;
-		int countOversized = 0;
-		for (Block b : blockchain.getBlockchain()) {
-			int aux = b.getTransactions().size();
-			if (aux > maxCap) {
-				maxCap = aux;
-			}
-			if (aux > Constants.CAPACITY) {
-				countOversized++;
-			}
-			totalNumOfTxns += aux;
-		}
-		LOG.info("\n============================ Results - Node {} ============================", getId());
-
-		// metrics for TXNs
-		LOG.info("Num of transactions performed was {}", totalNumOfTxns);
-		LOG.info("In a total time of {} seconds", durationSec);
-		LOG.info("Throughput of our system was {} TXNs/second", (double) totalNumOfTxns / durationSec);
-		LOG.info("Trans received={}", transReceived);
-		LOG.info("Trans sent={}", transSent);
-		LOG.info("Invalid Trans that weren't broadcasted={}", transNotBroadcasted);
-		LOG.info("Size of set, which contains leftover TXNs, is {}", set.size());
-
-		// metrics for Blocks
-		LOG.info("Blocks received and accepted={}", blocksReceived);
-		LOG.info("Blocks mined={}", blocksSent);
-		LOG.info("Mean mining time was {} seconds", (double) timeMining / blocksSent / 1000);
-
-		// metrics for Consensus
-		LOG.info("Requests for blockchain sent: {}", chainRequestSend);
-		LOG.info("Consensus rounds succeeded: {}", consensusRoundsSucceed);
-		LOG.info("Consensus rounds failed: {}", consensusRoundsFailed);
-
-		LOG.info("My balance was: {}", this.getBalance());
-		LOG.info("Oversized blocks: {}", countOversized);
-		LOG.info("Max capacity: {}", maxCap);
-	}
-
 	public static void main(String[] args) throws Exception {
 
 		NodeMiner node = initializeBackEnd(args);
 
-		//Thread.sleep(10000); // wait for initialization
+		if (node == null) {
+			return;
+		}
 
 		int sizeSoFar;
 		synchronized (lockBlockchain) {
@@ -599,6 +589,7 @@ public class NodeMiner {
 				"\n\n\n========================================= Initialization period ended =========================================\n\n\n");
 
 		if (node.getId().equals("id0")) { // check if others completed initialization phase
+			Thread.sleep(500);
 			node.broadcastMsg(new MsgRequestStatus());
 		}
 

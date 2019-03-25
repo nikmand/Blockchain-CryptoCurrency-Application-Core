@@ -53,12 +53,13 @@ public class Wallet implements Serializable {
 	 * @return
 	 */
 	public void generateKeyPair() {
+		LOG.debug("START generateKeyPair");
 		try {
 			// Create a generator for Public and Private Key Pair
 			// ECDSA : variant of the Digital Signature Algorithm (DSA) which uses elliptic
 			// curve cryptography
 			// BC : provider for algorithms, you could also use Java's builtin
-			KeyPairGenerator keyGen = KeyPairGenerator.getInstance("ECDSA", "BC");
+			KeyPairGenerator keyGen = KeyPairGenerator.getInstance("ECDSA", "BC"); // "RSA"
 			// Secure random number generator that provides random numbers according to the
 			// algorithm that is given as input
 			SecureRandom random = SecureRandom.getInstance("SHA1PRNG");
@@ -66,6 +67,7 @@ public class Wallet implements Serializable {
 			ECGenParameterSpec ecSpec = new ECGenParameterSpec("prime192v1");
 			// Initialize the key generator and generate a KeyPair
 			keyGen.initialize(ecSpec, random); // 256 bytes provides an acceptable security level
+			//keyGen.initialize(1024);
 			KeyPair keyPair = keyGen.generateKeyPair();
 			privateKey = keyPair.getPrivate();
 			publicKey = keyPair.getPublic();
@@ -73,6 +75,7 @@ public class Wallet implements Serializable {
 			e.printStackTrace();
 
 		}
+		LOG.debug("END generateKeyPair");
 	}
 
 	/**

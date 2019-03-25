@@ -52,7 +52,7 @@ public class StringUtilities {
 		Signature dsa;
 		byte[] output = new byte[0];
 		try {
-			dsa = Signature.getInstance("ECDSA", "BC");
+			dsa = Signature.getInstance("ECDSA", "BC");//Signature.getInstance("SHA1WithRSA"); //
 			dsa.initSign(privateKey);
 			byte[] strByte = input.getBytes();
 			dsa.update(strByte);
@@ -73,7 +73,7 @@ public class StringUtilities {
 		}
 
 		try {
-			Signature ecdsaVerify = Signature.getInstance("ECDSA", "BC");
+			Signature ecdsaVerify = Signature.getInstance("ECDSA", "BC");// Signature.getInstance("SHA1WithRSA");
 			ecdsaVerify.initVerify(publicKey);
 			ecdsaVerify.update(data.getBytes());
 			return ecdsaVerify.verify(signature);
